@@ -1,158 +1,160 @@
 # HN Daily Digest
 
-> Top 20 Hacker News stories every day — with 300-word summaries, highlights, and comment sentiment analysis — published automatically as a GitHub Pages site.
+Top 20 Hacker News stories every day — 300-word summaries, highlights, and comment sentiment analysis — published automatically as a GitHub Pages site.
 
 **Live site:** `https://<your-username>.github.io/<repo-name>/`
 
 ---
 
-## How It Works
+## Setup (2 steps, ~2 minutes)
 
-```
-Algolia HN Search API  ──┐
-HN Firebase API        ──┼──▶  generate_daily.py  ──▶  site/YYYY-MM-DD.html
-Anthropic Claude API   ──┘                              site/index.html
-                                                        site/manifest.json
-                                     ▼
-                              GitHub Actions (daily cron)
-                                     ▼
-                              git push → GitHub Pages
-```
+### Step 1 — Fork or create this repo on GitHub
 
-1. **Story discovery** — Algolia's HN Search API (`hn.algolia.com`) returns the day's most-upvoted stories filtered by date.
-2. **Article fetching** — each story's URL is downloaded and stripped to plain text.
-3. **Comment fetching** — top 30 comment threads (with replies) pulled from `hacker-news.firebaseio.com`.
-4. **Claude analysis** — for each story, Claude receives the article text + comment threads and returns:
-   - 3 summary paragraphs (300+ words total)
-   - A highlight / key insight
-   - 5 key bullet points
-   - 3–5 sentiment clusters with estimated agreement counts
-   - Topic category (AI Fundamentals / AI Applications / Politics / Others)
-5. **HTML generation** — styled static HTML written to `site/`, index and manifest updated.
-6. **Deploy** — GitHub Actions commits and pushes; GitHub Pages serves everything.
+Push all files to the `main` branch of a **public** GitHub repository.  
+*(Public repos get free GitHub Pages and free Actions minutes.)*
 
----
+### Step 2 — Add your Anthropic API key
 
-## Quick Start
-
-### 1. Fork / clone this repo
-
-```bash
-git clone https://github.com/<you>/<repo>.git
-cd <repo>
-```
-
-### 2. Add your Anthropic API key as a secret
-
-GitHub repo → **Settings → Secrets and variables → Actions → New repository secret**
+Go to your repo → **Settings → Secrets and variables → Actions → New repository secret**
 
 | Name | Value |
 |------|-------|
-| `ANTHROPIC_API_KEY` | `sk-ant-…` |
+| `ANTHROPIC_API_KEY` | `sk-ant-api03-…` |
 
-### 3. Enable GitHub Pages
-
-Repo → **Settings → Pages → Source: Deploy from a branch → Branch: `main` / folder: `/site`**
-
-*(You can also use the `gh-pages` branch if you prefer; update the workflow accordingly.)*
-
-### 4. Run it manually for the first time
-
-GitHub repo → **Actions → Daily HN Digest → Run workflow**
-
-This generates yesterday's report and pushes it. After that, it runs automatically every day at 08:00 UTC.
+That's it. GitHub Actions will handle everything else automatically.
 
 ---
 
-## Local Usage
+## What happens next
 
-```bash
-pip install -r requirements.txt
-export ANTHROPIC_API_KEY=sk-ant-…
+1. **Go to Actions → Daily HN Digest → Run workflow** to trigger the first run.
+2. The workflow detects an empty manifest and **auto-backfills the last 7 days** before generating today's digest.
+3. GitHub Pages is **auto-configured** by the workflow — no manual Pages settings needed.
+4. From day 2 onward, the digest runs **automatically every morning at 08:00 UTC**.
 
-# Yesterday (default)
-python generate_daily.py
+Your site will be live at:  
+`https://<your-username>.github.io/<repo-name>/`
 
-# Specific date
-python generate_daily.py --date 2026-02-20
+---
 
-# Different ranking
-python generate_daily.py --date 2026-02-20 --ranking top
+## How it works
 
-# Available rankings: best | top | new | ask | show
+```
+Algolia HN Search API  ─┐
+HN Firebase API        ─┼──▶  generate_daily.py  ──▶  site/YYYY-MM-DD.html
+Claude Code CLI        ─┘                               site/index.html
+  (claude-sonnet-4-6)                                   site/manifest.json
+                                   │
+                         GitHub Actions (daily cron)
+                                   │
+                         git commit → main branch
+                                   │
+                         actions/deploy-pages
+                                   │
+                           GitHub Pages (live)
 ```
 
-Output is written to `site/`.
+**Story pipeline per story:**
+1. Algolia returns top-N stories filtered by date + ranking
+2. Article URL is fetched and stripped to plain text (~10K chars)
+3. Top 30 HN comment threads (+ 3 replies each) fetched from Firebase
+4. `claude -p "…" --model claude-sonnet-4-6 --output-format json` produces:
+   - 3 summary paragraphs (300+ words total)
+   - A pull-quote / key highlight
+   - 5 key bullet points
+   - 3–5 sentiment clusters with estimated agreement counts
+   - Topic category (AI Fundamentals / AI Applications / Politics / Others)
+5. Static HTML built and written to `site/`
 
 ---
 
-## Sentiment Analysis — How It Works
+## Sentiment analysis — how the "~XX users" count works
 
-The sentiment analysis is **based on actual HN comment text**, not guesswork:
+The estimate is based on **real comment data**, not guesswork:
 
-1. The script fetches the top 30 parent comments + up to 3 replies each via the Firebase API.
-2. Claude receives the full comment text (truncated to 500 chars per comment) plus metadata (author, score).
-3. Claude is instructed to:
-   - Identify distinct opinion clusters in the actual comments
-   - Quote or paraphrase specific things commenters said
-   - Estimate how many commenters fall into each cluster based on comment **upvote scores** and **reply volume** (not the total comment count, which includes low-vote comments)
+1. The top 30 parent comments are fetched with `score` (upvote count) and reply counts.
+2. Claude receives the full comment text plus metadata.
+3. Claude is instructed to group comments into opinion clusters **from the actual text**, citing specific phrasing, then estimate the cluster size from the **relative distribution of upvote scores and reply volume**.
 
-**Example prompt excerpt sent to Claude:**
+Example input given to Claude:
 ```
 [throwaway_dev score=148]: The exoskeleton metaphor is elegant but breaks
-down — exoskeletons have deterministic mechanics, LLMs have probabilistic
-outputs. The failure modes are categorically different.
-  ↳ [pmarca_fan]: Agreed — a co-pilot framing handles this better since
-    it has a built-in override assumption.
-[bengregory score=92]: This is exactly the point I was trying to make
-in the article — the seam visibility section covers exactly this concern.
+down — exoskeletons have deterministic mechanics; LLMs have probabilistic
+outputs. Failure modes are categorically different.
+  ↳ [pmarca_fan]: Agreed — "co-pilot" handles this better since it has a
+    built-in override assumption baked in.
+
+[bengregory score=92]: This is exactly what the seam-visibility section
+covers — each micro-agent has clear I/O so failures are diagnosable.
 ```
 
-Claude then groups comments by position and estimates: *"~52 users expressed this concern"* by reasoning from the upvote distribution visible in the thread.
+Claude then returns `"estimated_agreement": "~52 users"` by reasoning: *comment score 148 is the highest in this thread; if it represents ~30% of engaged commenters, the cluster is roughly 50 users.*
 
-**Important caveat:** The "~XX users" figure is a **reasoned estimate**, not a literal count. HN comment scores aren't publicly exposed per-comment in the same way post scores are, so Claude infers from relative upvote signals and reply engagement. Think of it as: *"this cluster of opinion had significant upvote support"* rather than a precise head count.
+> **Caveat:** This is a reasoned estimate, not a literal count. HN per-comment scores are not exposed in the Firebase API at the same granularity as post scores. Treat "~XX users" as *"this view had meaningful upvote support"* rather than a precise head-count.
 
 ---
 
-## File Structure
+## Local usage
 
-```
-.
-├── generate_daily.py          # main pipeline script
-├── requirements.txt
-├── .github/
-│   └── workflows/
-│       └── daily.yml          # GitHub Actions workflow
-└── site/                      # generated output (served by Pages)
-    ├── index.html             # calendar landing page
-    ├── manifest.json          # list of all available reports
-    ├── 2026-02-20.html        # daily reports (best ranking = no suffix)
-    ├── 2026-02-20-top.html    # same day, different ranking
-    └── …
+```bash
+# Install Claude Code CLI
+npm install -g @anthropic-ai/claude-code
+
+# Install Python deps
+pip install -r requirements.txt
+
+# Set your key
+export ANTHROPIC_API_KEY=sk-ant-…
+
+# Generate yesterday's digest
+python generate_daily.py
+
+# Specific date + ranking
+python generate_daily.py --date 2026-02-20 --ranking top
+
+# Open in browser
+open site/index.html
 ```
 
 ---
 
-## Costs
+## Manual backfill
 
-Each daily run makes approximately:
-- **20 Claude API calls** (one per story) at ~2,500 output tokens each
-- Model: `claude-opus-4-6`
-- Approximate cost per day: **~$3–6 USD** depending on article lengths
-
-To reduce cost, switch `MODEL` in `generate_daily.py` to `claude-sonnet-4-6` (~10× cheaper, still excellent quality).
+Trigger the workflow manually with **backfill_days = 30** to generate the last 30 days at once.  
+Each day costs ~$0.30–0.50 with `claude-sonnet-4-6` (20 stories × ~2 500 output tokens).
 
 ---
 
 ## Customisation
 
-| What | Where |
-|------|-------|
-| Number of stories | `--stories` arg or `workflow_dispatch` input |
-| Model | `MODEL` constant in `generate_daily.py` |
-| Cron schedule | `cron:` in `.github/workflows/daily.yml` |
+| What to change | Where |
+|----------------|-------|
+| Number of stories | `--stories` arg or workflow input |
+| Model | `CLAUDE_MODEL` constant in `generate_daily.py` |
+| Run time | `cron:` in `.github/workflows/daily.yml` |
 | Page styling | `PAGE_CSS` constant in `generate_daily.py` |
-| Summary depth | Edit the Claude prompt in `analyze_story()` |
+| Summary depth / prompt | `analyze_story()` in `generate_daily.py` |
+
+---
+
+## File structure
+
+```
+.
+├── generate_daily.py          # main pipeline (fetch → analyse → render)
+├── requirements.txt           # only: requests
+├── .gitignore
+├── .github/
+│   └── workflows/
+│       └── daily.yml          # GitHub Actions — daily cron + Pages deploy
+└── site/                      # generated output (served by Pages)
+    ├── .nojekyll              # disables Jekyll processing
+    ├── index.html             # calendar landing page (auto-generated)
+    ├── manifest.json          # index of all available reports
+    ├── 2026-02-20.html        # daily report (best = no suffix)
+    ├── 2026-02-20-top.html    # same day, different ranking
+    └── …
+```
 
 ---
 

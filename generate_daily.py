@@ -1,68 +1,65 @@
 #!/usr/bin/env python3
 """
-HN Daily Digest Generator
-─────────────────────────
-Fetches top HN stories for a given date via Algolia's HN Search API,
-enriches each story with the full article text + HN comments via the
-official Firebase API, then calls Claude to produce:
-  • 300+ word article summary with highlights
-  • Sentiment table with estimated agreement counts
+HN Daily Digest Generator  ·  uses Claude Code CLI (claude -p)
+──────────────────────────────────────────────────────────────
+Fetches top HN stories via Algolia + Firebase APIs, then calls
+the `claude` CLI for each story to produce:
+  • 300-word article summary with highlights
+  • Sentiment table based on real comment threads
   • Topic categorisation (AI Fundamentals / AI Applications / Politics / Others)
 
 Usage:
-  python generate_daily.py                      # yesterday, best ranking
-  python generate_daily.py --date 2026-02-20    # specific date
-  python generate_daily.py --ranking top        # ranking: top|best|new|ask|show
-  python generate_daily.py --stories 20         # number of stories (default 20)
+  python generate_daily.py                       # yesterday, best ranking
+  python generate_daily.py --date 2026-02-20
+  python generate_daily.py --ranking top
+  python generate_daily.py --stories 20
 """
 
-import os, sys, re, json, time, argparse, textwrap, requests
+import os, sys, re, json, time, argparse, subprocess, textwrap, requests
 from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
 from html import escape
-import anthropic
 
-# ── Configuration ─────────────────────────────────────────────────────────────
+# ── Model & Paths ─────────────────────────────────────────────────────────────
 
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-claude = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-MODEL  = "claude-opus-4-6"
+CLAUDE_MODEL = "claude-sonnet-4-6"     # Sonnet 4.6 — fast, cost-effective
 
-HN_FIREBASE  = "https://hacker-news.firebaseio.com/v0"
-HN_ALGOLIA   = "https://hn.algolia.com/api/v1/search"
+OUTPUT_DIR = Path("site")
+OUTPUT_DIR.mkdir(exist_ok=True)
+MANIFEST   = OUTPUT_DIR / "manifest.json"
+
+# ── HN APIs ───────────────────────────────────────────────────────────────────
+
+HN_FIREBASE = "https://hacker-news.firebaseio.com/v0"
+HN_ALGOLIA  = "https://hn.algolia.com/api/v1/search"
 
 RANKING_TAGS = {
-    "top":  "front_page",
-    "best": "front_page",   # algolia doesn't distinguish; sort by points
-    "new":  "story",
-    "ask":  "ask_hn",
-    "show": "show_hn",
+    "best":  "front_page",
+    "top":   "front_page",
+    "new":   "story",
+    "ask":   "ask_hn",
+    "show":  "show_hn",
 }
 
-OUTPUT_DIR   = Path("site")
-OUTPUT_DIR.mkdir(exist_ok=True)
-MANIFEST     = OUTPUT_DIR / "manifest.json"
-
-
-# ── HN Data Fetching ──────────────────────────────────────────────────────────
 
 def get_stories_for_date(target: date, n: int = 20, ranking: str = "best") -> list:
-    """Get top-n HN stories for a given calendar date via Algolia."""
-    start = int(datetime(target.year, target.month, target.day, 0, 0, 0,
-                          tzinfo=timezone.utc).timestamp())
+    start = int(datetime(target.year, target.month, target.day,
+                         tzinfo=timezone.utc).timestamp())
     end   = start + 86400
-
     params = {
         "tags":           RANKING_TAGS.get(ranking, "front_page"),
         "numericFilters": f"created_at_i>{start},created_at_i<{end}",
-        "hitsPerPage":    n * 2,   # fetch extra, then trim after dedup
+        "hitsPerPage":    n * 2,
     }
-    resp = requests.get(HN_ALGOLIA, params=params, timeout=20)
-    resp.raise_for_status()
-    hits = resp.json().get("hits", [])
+    try:
+        resp = requests.get(HN_ALGOLIA, params=params, timeout=20)
+        resp.raise_for_status()
+        hits = resp.json().get("hits", [])
+    except Exception as e:
+        print(f"  ⚠ Algolia fetch failed: {e}")
+        return []
 
-    seen = set()
-    deduped = []
+    seen, deduped = set(), []
     for h in hits:
         oid = h.get("objectID")
         if oid and oid not in seen:
@@ -82,138 +79,168 @@ def get_hn_item(item_id: int) -> dict:
 
 
 def get_top_comments(item_id: int, max_top: int = 30, max_replies: int = 3) -> list:
-    """Fetch top-level HN comments + shallow replies for sentiment input."""
-    item   = get_hn_item(item_id)
-    kids   = (item.get("kids") or [])[:max_top]
+    """Return top-level comments + shallow replies as plain dicts."""
+    item = get_hn_item(item_id)
+    kids = (item.get("kids") or [])[:max_top]
     result = []
-
     for kid_id in kids:
         c = get_hn_item(kid_id)
         if not c or c.get("dead") or c.get("deleted") or not c.get("text"):
             continue
-
         entry = {
             "author":  c.get("by", ""),
-            "text":    c.get("text", ""),
             "score":   c.get("score", 0),
+            "text":    re.sub(r"<[^>]+>", " ", c.get("text", ""))[:600],
             "replies": [],
         }
-
         for r_id in (c.get("kids") or [])[:max_replies]:
             rep = get_hn_item(r_id)
-            if rep and not rep.get("dead") and not rep.get("deleted") and rep.get("text"):
-                entry["replies"].append({"author": rep.get("by",""), "text": rep.get("text","")})
-
+            if rep and not rep.get("dead") and rep.get("text"):
+                entry["replies"].append({
+                    "author": rep.get("by", ""),
+                    "text":   re.sub(r"<[^>]+>", " ", rep.get("text", ""))[:300],
+                })
         result.append(entry)
-
     return result
 
 
 def fetch_article(url: str, max_chars: int = 10_000) -> str:
-    """Download & strip HTML from an article URL."""
     if not url:
-        return "[No URL provided]"
+        return "[No article URL — likely an Ask/Show HN post]"
     try:
         headers = {"User-Agent": "Mozilla/5.0 (compatible; HNDigest/1.0)"}
         r = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
         r.raise_for_status()
         text = r.text
-        text = re.sub(r'<script[^>]*>.*?</script>', ' ', text, flags=re.DOTALL | re.I)
-        text = re.sub(r'<style[^>]*>.*?</style>',  ' ', text, flags=re.DOTALL | re.I)
-        text = re.sub(r'<[^>]+>', ' ', text)
-        text = re.sub(r'\s+', ' ', text).strip()
+        text = re.sub(r"<script[^>]*>.*?</script>", " ", text, flags=re.DOTALL | re.I)
+        text = re.sub(r"<style[^>]*>.*?</style>",   " ", text, flags=re.DOTALL | re.I)
+        text = re.sub(r"<[^>]+>", " ", text)
+        text = re.sub(r"\s+", " ", text).strip()
         return text[:max_chars]
     except Exception as e:
         return f"[Article fetch failed: {e}]"
 
 
-# ── Claude Analysis ───────────────────────────────────────────────────────────
+# ── Claude Code CLI ────────────────────────────────────────────────────────────
+
+def call_claude(prompt: str) -> str:
+    """
+    Invoke `claude` CLI in non-interactive print mode.
+    The ANTHROPIC_API_KEY env var is picked up automatically.
+
+    Uses --output-format json so the result field contains Claude's response.
+    Falls back to raw stdout if JSON parsing fails.
+    """
+    proc = subprocess.run(
+        [
+            "claude",
+            "--model",         CLAUDE_MODEL,
+            "--output-format", "json",
+            "-p",              prompt,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=180,
+        # inherit the calling process's env (ANTHROPIC_API_KEY flows through)
+    )
+
+    if proc.returncode != 0:
+        stderr = proc.stderr.strip()[:400]
+        raise RuntimeError(f"claude CLI exited {proc.returncode}: {stderr}")
+
+    # Claude Code wraps the response: {"result": "...", "session_id": "...", ...}
+    try:
+        outer = json.loads(proc.stdout)
+        if isinstance(outer, dict) and "result" in outer:
+            return outer["result"].strip()
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    return proc.stdout.strip()
+
+
+# ── Analysis Schema & Prompt ───────────────────────────────────────────────────
 
 ANALYSIS_SCHEMA = """{
   "topic_category": "AI Fundamentals|AI Applications|Politics|Others",
   "summary_paragraphs": [
-    "<paragraph 1: 100-150 words — core story, context, why it was submitted>",
-    "<paragraph 2: 100-150 words — key data, quotes, technical or policy details>",
-    "<paragraph 3:  80-100 words — why the HN/tech community cares>"
+    "<paragraph 1 (100-150 words): core story, context, why submitted>",
+    "<paragraph 2 (100-150 words): key data, quotes, technical or policy detail>",
+    "<paragraph 3 (80-100 words):  why the HN/tech community cares>"
   ],
-  "highlight": "<1-2 sentence compelling stat, quote, or insight from the article>",
-  "key_points": [
-    "<point 1>",
-    "<point 2>",
-    "<point 3>",
-    "<point 4>",
-    "<point 5>"
-  ],
+  "highlight": "<1-2 sentence compelling stat, quote, or key insight from the article>",
+  "key_points": ["<point 1>","<point 2>","<point 3>","<point 4>","<point 5>"],
   "sentiments": [
     {
-      "label":                "<2-4 word sentiment label>",
-      "type":                 "positive|negative|mixed|neutral|debate",
-      "description":          "<~100 words describing this cohort's view, with specific examples from comments>",
-      "estimated_agreement":  "<~XX users>"
+      "label":               "<2-4 word label>",
+      "type":                "positive|negative|mixed|neutral|debate",
+      "description":         "<~100 words — describe this cohort, quote specific comment phrasing where visible>",
+      "estimated_agreement": "~XX users"
     }
   ]
 }"""
 
 
 def analyze_story(story: dict, article: str, comments: list) -> dict:
-    """Ask Claude to produce a structured analysis of one HN story."""
+    """Ask Claude (via CLI) to produce a structured JSON analysis."""
 
     comments_block = "\n\n".join(
-        f"[{c['author']} score={c.get('score',0)}]: {c['text'][:500]}"
-        + "".join(f"\n  ↳ [{r['author']}]: {r['text'][:250]}" for r in c['replies'][:2])
+        f"[{c['author']} score={c.get('score', 0)}]: {c['text']}"
+        + "".join(
+            f"\n  ↳ [{r['author']}]: {r['text']}"
+            for r in c.get("replies", [])
+        )
         for c in comments[:25]
-    ) or "[No comments fetched]"
+    ) or "[No comments available — reason from article topic and HN norms]"
 
     prompt = textwrap.dedent(f"""
-        You are writing a daily tech digest for a sophisticated engineering audience.
-        Analyse the following Hacker News story thoroughly.
+        You are writing a high-quality daily tech digest for a sophisticated engineering audience.
+        Analyse the Hacker News story below and return ONLY valid JSON — no markdown fences, no preamble.
 
-        ──── STORY METADATA ────
-        Title    : {story.get('title','')}
-        URL      : {story.get('url','')}
-        Points   : {story.get('points',0)}
-        Comments : {story.get('num_comments',0)}
-        Author   : {story.get('author','')}
+        ── STORY ─────────────────────────────────────────────────────────
+        Title    : {story.get('title', '')}
+        URL      : {story.get('url', '')}
+        Points   : {story.get('points', 0)}
+        Comments : {story.get('num_comments', 0)}
 
-        ──── ARTICLE TEXT (truncated to 10k chars) ────
+        ── ARTICLE TEXT (up to 10 000 chars) ────────────────────────────
         {article}
 
-        ──── HN COMMENTS (top threads with shallow replies) ────
+        ── HN COMMENTS (top threads + shallow replies) ───────────────────
         {comments_block}
 
-        ──── INSTRUCTIONS ────
-        • summary_paragraphs: each must be >80 words.
-        • highlight: a memorable insight or direct quote from the article.
-        • sentiments: identify 3-5 distinct opinion clusters from the ACTUAL comments.
-          For each cluster state what specific users said, not generalities.
-          estimated_agreement = rough number of commenters you'd assign to this cluster,
-          based on upvotes and reply volume visible in the comments block.
-          If comments are sparse, note that and reason from the article topic and
-          known HN community patterns.
-        • topic_category must be exactly one of the four strings.
+        ── INSTRUCTIONS ─────────────────────────────────────────────────
+        • summary_paragraphs: total must exceed 300 words across the three paragraphs.
+        • highlight: a single memorable stat, pull-quote, or key insight.
+        • sentiments: identify 3-5 distinct opinion clusters from the REAL comments.
+          For each cluster, cite specific phrasing or arguments visible in the comments.
+          estimated_agreement = rough number of commenters for this cluster,
+          inferred from upvote scores and reply counts in the comments block.
+          If comments are sparse, say so and reason from known HN community patterns.
+        • topic_category must be exactly one of the four enum values.
+        • Return ONLY the JSON object — nothing else.
 
-        Return ONLY valid JSON matching this schema (no markdown fences):
+        JSON schema:
         {ANALYSIS_SCHEMA}
     """).strip()
 
-    resp = claude.messages.create(
-        model=MODEL,
-        max_tokens=2800,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    raw = resp.content[0].text.strip()
+    raw = call_claude(prompt)
 
-    # Graceful JSON extraction
+    # Strip any accidental markdown fencing
+    raw = re.sub(r"^```(?:json)?\s*", "", raw.strip(), flags=re.I)
+    raw = re.sub(r"\s*```$",          "", raw.strip())
+
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
-        m = re.search(r'\{[\s\S]*\}', raw)
+        # Last resort: hunt for the outermost { … }
+        m = re.search(r"\{[\s\S]*\}", raw)
         if m:
             return json.loads(m.group())
-        raise
+        raise ValueError(f"Could not parse JSON from Claude response:\n{raw[:300]}")
 
 
-# ── HTML Building Blocks ──────────────────────────────────────────────────────
+# ── HTML Constants ─────────────────────────────────────────────────────────────
 
 SENT_CLASS = {
     "positive": "sent-positive",
@@ -237,116 +264,7 @@ SECTION_ID = {
     "Others":          "others",
 }
 
-
-def story_card_html(rank: int, story: dict) -> str:
-    a    = story.get("analysis", {})
-    title     = escape(story.get("title", ""))
-    url       = escape(story.get("url", "#"))
-    pts       = story.get("points", 0)
-    ncmts     = story.get("num_comments", 0)
-    hn_id     = story.get("objectID") or story.get("story_id", "")
-    paras     = a.get("summary_paragraphs", ["No summary."])
-    highlight = a.get("highlight", "")
-    kps       = a.get("key_points", [])
-    sents     = a.get("sentiments", [])
-
-    para_html = "".join(f"<p>{escape(p)}</p>" for p in paras)
-
-    hl_html = (
-        f'<div class="highlight-box"><p>{escape(highlight)}</p></div>'
-        if highlight else ""
-    )
-
-    kp_html = ""
-    if kps:
-        items = "".join(f"<li>{escape(k)}</li>" for k in kps)
-        kp_html = (
-            f'<div class="key-points">'
-            f'<div class="key-points-title">Key Highlights</div>'
-            f'<ul>{items}</ul></div>'
-        )
-
-    rows = ""
-    for s in sents:
-        rc = SENT_CLASS.get(s.get("type", "neutral"), "sent-neutral")
-        rows += (
-            f'<tr class="{rc}">'
-            f'<td>{escape(s.get("label",""))}</td>'
-            f'<td>{escape(s.get("description",""))}</td>'
-            f'<td><div class="vote-bar">'
-            f'<span class="vote-count">{escape(str(s.get("estimated_agreement","")))}</span>'
-            f'</div></td></tr>'
-        )
-
-    sent_html = ""
-    if rows:
-        sent_html = (
-            f'<div class="sentiment-section">'
-            f'<div class="sentiment-title">Comment Sentiment Analysis — {ncmts} comments</div>'
-            f'<table class="sentiment-table">'
-            f'<thead><tr><th>Sentiment</th><th>Community View</th><th>Approx. Agree</th></tr></thead>'
-            f'<tbody>{rows}</tbody></table></div>'
-        )
-
-    return f"""
-<div class="story-card">
-  <div class="story-header">
-    <div class="story-title-wrap">
-      <div class="story-num">#{rank}</div>
-      <div class="story-title"><a href="{url}" target="_blank" rel="noopener">{title}</a></div>
-      <div class="story-meta">
-        <span class="meta-pill">⬆ <span>{pts}</span> pts</span>
-        <span class="meta-pill">💬 <a href="https://news.ycombinator.com/item?id={hn_id}"
-              target="_blank" rel="noopener"><span>{ncmts}</span> comments on HN</a></span>
-      </div>
-    </div>
-  </div>
-  <div class="story-body">
-    <div class="story-summary">{para_html}{hl_html}{kp_html}</div>
-    {sent_html}
-  </div>
-</div>"""
-
-
-def others_table_html(stories: list) -> str:
-    rows = ""
-    for rank, story in stories:
-        a     = story.get("analysis", {})
-        title = escape(story.get("title",""))
-        url   = escape(story.get("url","#"))
-        pts   = story.get("points",0)
-        ncmts = story.get("num_comments",0)
-        hn_id = story.get("objectID","")
-        para  = (a.get("summary_paragraphs") or [""])[0]
-        para  = escape(para[:200] + "…" if len(para) > 200 else para)
-        rows += (
-            f"<tr><td><span class='rank-num'>#{rank}</span></td>"
-            f"<td><a href='{url}' target='_blank'>{title}</a></td>"
-            f"<td><span class='pts-mono'>{pts}</span></td>"
-            f"<td><a href='https://news.ycombinator.com/item?id={hn_id}' target='_blank'>"
-            f"<span class='cmts-mono'>{ncmts}</span></a></td>"
-            f"<td>{para}</td></tr>"
-        )
-    return f"""
-<div class="story-card">
-  <div class="story-body" style="padding:18px 26px;">
-    <p style="font-size:14px;color:var(--text-dim);margin-bottom:18px;">
-      Stories outside the main AI / Politics focus — concise reference table.
-    </p>
-    <div class="others-table-wrap">
-      <table class="others-table">
-        <thead><tr><th>#</th><th>Story</th><th>Pts</th><th>Cmts</th><th>Summary</th></tr></thead>
-        <tbody>{rows}</tbody>
-      </table>
-    </div>
-  </div>
-</div>"""
-
-
-# ── Full Page Template ────────────────────────────────────────────────────────
-
-PAGE_CSS = """
-:root{--bg:#0f0e0c;--bg2:#181613;--bg3:#211f1b;--surface:#242119;--border:#332f28;
+PAGE_CSS = """:root{--bg:#0f0e0c;--bg2:#181613;--bg3:#211f1b;--surface:#242119;--border:#332f28;
 --amber:#d4a017;--amber-light:#f0bf4c;--amber-dim:rgba(212,160,23,.12);
 --text:#e8e2d6;--text-dim:#9c9285;--text-muted:#5a5446;
 --red:#c45c3a;--green:#5a9e6f;--blue:#4a8ab5;--purple:#8a6bbf;}
@@ -361,13 +279,13 @@ a:hover{opacity:.75}
 .masthead h1 span{color:var(--amber)}
 .masthead-date{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.15em;color:var(--text-dim);margin-top:10px}
 .masthead-rule{width:60px;height:2px;background:var(--amber);margin:14px auto 0}
-/* Controls bar */
 .controls{background:var(--bg3);border-bottom:1px solid var(--border);padding:10px 0;position:sticky;top:0;z-index:100}
 .controls-inner{max-width:1100px;margin:0 auto;padding:0 24px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
 .ctrl-label{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.2em;color:var(--text-muted);text-transform:uppercase;white-space:nowrap}
 .ctrl-select{font-family:'DM Mono',monospace;font-size:12px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:5px 10px;cursor:pointer;outline:none}
 .ctrl-select:hover{border-color:var(--amber)}
 .toc-sep{flex:1}
+.toc{display:flex;gap:6px;flex-wrap:wrap}
 .toc a{font-family:'DM Mono',monospace;font-size:11px;padding:4px 10px;border-radius:3px;transition:opacity .15s}
 .toc a.ai-fund{color:#e87a5a;border:1px solid rgba(196,92,58,.3)}
 .toc a.ai-app{color:#7ec890;border:1px solid rgba(90,158,111,.3)}
@@ -384,8 +302,7 @@ a:hover{opacity:.75}
 .section-line{flex:1;height:1px;background:var(--border)}
 .story-card{background:var(--surface);border:1px solid var(--border);border-radius:6px;margin-bottom:28px;overflow:hidden;transition:border-color .2s}
 .story-card:hover{border-color:rgba(212,160,23,.3)}
-.story-header{padding:22px 26px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
-.story-title-wrap{flex:1}
+.story-header{padding:22px 26px 16px;border-bottom:1px solid var(--border)}
 .story-num{font-family:'DM Mono',monospace;font-size:11px;color:var(--amber);letter-spacing:.1em;margin-bottom:6px}
 .story-title{font-family:'Playfair Display',serif;font-size:1.25rem;font-weight:700;line-height:1.3;color:var(--text)}
 .story-title a{color:inherit}
@@ -418,7 +335,6 @@ a:hover{opacity:.75}
 .sent-neutral{border-left:2px solid var(--text-muted)}
 .sent-mixed{border-left:2px solid var(--amber)}
 .sent-debate{border-left:2px solid var(--purple)}
-.vote-bar{display:inline-flex;align-items:center;gap:6px}
 .vote-count{font-family:'DM Mono',monospace;font-size:12px;color:var(--amber-light);font-weight:500}
 .others-table-wrap{overflow-x:auto}
 .others-table{width:100%;border-collapse:collapse;font-size:13px}
@@ -427,98 +343,266 @@ a:hover{opacity:.75}
 .others-table tbody tr{border-bottom:1px solid var(--border)}
 .others-table tbody tr:hover{background:rgba(255,255,255,.02)}
 .others-table td{padding:11px 14px;vertical-align:top;color:#c0b8a8;font-weight:300;line-height:1.5}
-.others-table td:first-child{font-weight:400;color:var(--text);font-size:13.5px}
-.rank-num{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);padding-right:8px}
-.pts-mono,.cmts-mono{font-family:'DM Mono',monospace;font-size:11px;white-space:nowrap}
-.pts-mono{color:var(--amber-light)}
-.cmts-mono{color:var(--text-dim)}
+.others-table td:first-child{font-weight:400;color:var(--text)}
+.rank-num{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted)}
+.pts-mono{font-family:'DM Mono',monospace;font-size:11px;color:var(--amber-light);white-space:nowrap}
+.cmts-mono{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-dim);white-space:nowrap}
 .footer{border-top:1px solid var(--border);margin-top:64px;padding:28px 0;text-align:center}
 .footer p{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.1em;color:var(--text-muted)}
-@media(max-width:640px){.story-header{flex-direction:column}.controls-inner{gap:8px}}
-"""
+@media(max-width:640px){.controls-inner{gap:8px}}"""
 
-PAGE_TEMPLATE = """<!DOCTYPE html>
+
+# ── HTML Builders ─────────────────────────────────────────────────────────────
+
+def story_card_html(rank: int, story: dict) -> str:
+    a     = story.get("analysis", {})
+    title = escape(story.get("title", "Untitled"))
+    url   = escape(story.get("url", "#") or "#")
+    pts   = story.get("points", 0)
+    ncmts = story.get("num_comments", 0)
+    hn_id = story.get("objectID", "")
+
+    para_html = "".join(f"<p>{escape(p)}</p>" for p in a.get("summary_paragraphs", []))
+
+    hl = a.get("highlight", "")
+    hl_html = f'<div class="highlight-box"><p>{escape(hl)}</p></div>' if hl else ""
+
+    kps = a.get("key_points", [])
+    kp_html = ""
+    if kps:
+        items = "".join(f"<li>{escape(k)}</li>" for k in kps)
+        kp_html = (f'<div class="key-points">'
+                   f'<div class="key-points-title">Key Highlights</div>'
+                   f'<ul>{items}</ul></div>')
+
+    rows = ""
+    for s in a.get("sentiments", []):
+        rc = SENT_CLASS.get(s.get("type", "neutral"), "sent-neutral")
+        rows += (f'<tr class="{rc}">'
+                 f'<td>{escape(s.get("label", ""))}</td>'
+                 f'<td>{escape(s.get("description", ""))}</td>'
+                 f'<td><span class="vote-count">'
+                 f'{escape(str(s.get("estimated_agreement", "")))}''</span></td></tr>')
+
+    sent_html = ""
+    if rows:
+        sent_html = (
+            f'<div class="sentiment-section">'
+            f'<div class="sentiment-title">Comment Sentiment Analysis — {ncmts} comments</div>'
+            f'<table class="sentiment-table">'
+            f'<thead><tr><th>Sentiment</th><th>Community View</th><th>Agree</th></tr></thead>'
+            f'<tbody>{rows}</tbody></table></div>'
+        )
+
+    return f"""
+<div class="story-card">
+  <div class="story-header">
+    <div class="story-num">#{rank}</div>
+    <div class="story-title"><a href="{url}" target="_blank" rel="noopener">{title}</a></div>
+    <div class="story-meta">
+      <span class="meta-pill">⬆ <span>{pts}</span> pts</span>
+      <span class="meta-pill">💬 <a href="https://news.ycombinator.com/item?id={hn_id}"
+            target="_blank" rel="noopener"><span>{ncmts}</span> HN comments</a></span>
+    </div>
+  </div>
+  <div class="story-body">
+    <div class="story-summary">{para_html}{hl_html}{kp_html}</div>
+    {sent_html}
+  </div>
+</div>"""
+
+
+def others_table_html(stories: list) -> str:
+    rows = ""
+    for rank, story in stories:
+        a     = story.get("analysis", {})
+        title = escape(story.get("title", ""))
+        url   = escape(story.get("url", "#") or "#")
+        pts   = story.get("points", 0)
+        ncmts = story.get("num_comments", 0)
+        hn_id = story.get("objectID", "")
+        para  = (a.get("summary_paragraphs") or [""])[0]
+        short = escape(para[:220] + "…" if len(para) > 220 else para)
+        rows += (
+            f"<tr>"
+            f"<td><span class='rank-num'>#{rank}</span></td>"
+            f"<td><a href='{url}' target='_blank'>{title}</a></td>"
+            f"<td><span class='pts-mono'>{pts}</span></td>"
+            f"<td><a href='https://news.ycombinator.com/item?id={hn_id}' target='_blank'>"
+            f"<span class='cmts-mono'>{ncmts}</span></a></td>"
+            f"<td>{short}</td>"
+            f"</tr>"
+        )
+    return f"""
+<div class="story-card">
+  <div class="story-body" style="padding:18px 26px">
+    <p style="font-size:14px;color:var(--text-dim);margin-bottom:18px">
+      Remaining stories — concise reference table.
+    </p>
+    <div class="others-table-wrap">
+      <table class="others-table">
+        <thead><tr><th>#</th><th>Story</th><th>Pts</th><th>Cmts</th><th>Summary</th></tr></thead>
+        <tbody>{rows}</tbody>
+      </table>
+    </div>
+  </div>
+</div>"""
+
+
+# ── Manifest ──────────────────────────────────────────────────────────────────
+
+def load_manifest() -> dict:
+    if MANIFEST.exists():
+        try:
+            return json.loads(MANIFEST.read_text())
+        except Exception:
+            pass
+    return {"entries": [], "files": []}
+
+
+def save_manifest(m: dict):
+    MANIFEST.write_text(json.dumps(m, indent=2))
+
+
+def update_manifest(target: date, filename: str, ranking: str, n: int) -> dict:
+    m = load_manifest()
+    date_iso = target.isoformat()
+    m["entries"] = [e for e in m["entries"]
+                    if not (e["date"] == date_iso and e["ranking"] == ranking)]
+    m["entries"].insert(0, {
+        "date": date_iso, "file": filename,
+        "ranking": ranking, "story_count": n,
+    })
+    m["entries"].sort(key=lambda e: e["date"], reverse=True)
+    m["files"] = [e["file"] for e in m["entries"]]
+    save_manifest(m)
+    return m
+
+
+# ── Page Template ─────────────────────────────────────────────────────────────
+
+def build_page(target: date, stories: list, ranking: str, manifest: dict) -> str:
+    cats: dict[str, list] = {
+        "AI Fundamentals": [], "AI Applications": [], "Politics": [], "Others": []
+    }
+    for i, s in enumerate(stories):
+        cat = s.get("analysis", {}).get("topic_category", "Others")
+        if cat not in cats:
+            cat = "Others"
+        cats[cat].append((i + 1, s))
+
+    # Section HTML
+    sections = ""
+    for cat, items in cats.items():
+        if not items:
+            continue
+        sid  = SECTION_ID[cat]
+        bid  = BADGE_CLASS[cat]
+        sections += (
+            f'<div class="section-header" id="{sid}">'
+            f'<span class="section-badge {bid}">{escape(cat)}</span>'
+            f'<div class="section-line"></div></div>\n'
+        )
+        if cat == "Others":
+            sections += others_table_html(items)
+        else:
+            for rank, story in items:
+                sections += story_card_html(rank, story)
+
+    date_iso  = target.isoformat()
+    date_str  = target.strftime("%A, %B %d, %Y").upper()
+
+    # Date selector — include current date even if not yet in manifest
+    all_dates = [date_iso] + [e["date"] for e in manifest.get("entries", [])
+                               if e["date"] != date_iso]
+    date_opts = "\n".join(
+        f'<option value="{d}"{"  selected" if d == date_iso else ""}>{d}</option>'
+        for d in dict.fromkeys(all_dates)   # preserve order, dedup
+    )
+
+    ranking_opts = "\n".join(
+        f'<option value="{r}"{"  selected" if r == ranking else ""}>{r.upper()}</option>'
+        for r in ["best", "top", "new", "ask", "show"]
+    )
+
+    manifest_json = json.dumps(manifest)
+
+    return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>HN Digest · {date_iso}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900;1,700&family=Source+Serif+4:ital,wght@0,300;0,400;0,600;1,300;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
-<style>{css}</style>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900;1,700&family=Source+Serif+4:ital,wght@0,300;0,400;0,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>{PAGE_CSS}</style>
 </head>
 <body>
 
 <div class="masthead">
   <div class="masthead-sub">Daily Intelligence Brief</div>
   <h1>Hacker <span>News</span></h1>
-  <div class="masthead-date">{date_str} · TOP {n_stories} STORIES · RANKED BY {ranking_label}</div>
+  <div class="masthead-date">{date_str} · TOP {len(stories)} · RANKED BY {ranking.upper()}</div>
   <div class="masthead-rule"></div>
 </div>
 
 <div class="controls">
   <div class="controls-inner">
     <span class="ctrl-label">Date</span>
-    <select class="ctrl-select" id="dateSelect" onchange="navigateDate()">
-      {date_options}
+    <select class="ctrl-select" id="dateSelect" onchange="navigate()">
+      {date_opts}
     </select>
     <span class="ctrl-label">Ranking</span>
-    <select class="ctrl-select" id="rankSelect" onchange="navigateRanking()">
-      {ranking_options}
+    <select class="ctrl-select" id="rankSelect" onchange="navigate()">
+      {ranking_opts}
     </select>
     <div class="toc-sep"></div>
     <div class="toc">
       <a href="#ai-fund" class="ai-fund">AI Fundamentals</a>
-      <a href="#ai-app" class="ai-app">AI Applications</a>
+      <a href="#ai-app"  class="ai-app">AI Applications</a>
       <a href="#politics" class="pol">Politics</a>
-      <a href="#others" class="others">Others</a>
+      <a href="#others"  class="others">Others</a>
     </div>
   </div>
 </div>
 
 <div class="container">
-{sections_html}
+{sections}
 </div>
 
 <div class="footer">
   <div class="container">
-    <p>Data: Hacker News API &amp; Algolia HN Search · Summaries: Anthropic Claude</p>
-    <p style="margin-top:6px;font-size:10px;">
-      Sentiment analysis based on actual HN comment threads. Agreement estimates reflect
-      comment upvote distribution and reply volume, not an exact count.
+    <p>Data: HN Algolia Search + Firebase APIs · Summaries: Claude {CLAUDE_MODEL} via Claude Code CLI</p>
+    <p style="margin-top:6px;font-size:10px">
+      Sentiment analysis uses real HN comment threads fetched at generation time.
+      Agreement estimates are inferred from comment upvote distribution and reply volume.
     </p>
   </div>
 </div>
 
 <script>
 const MANIFEST = {manifest_json};
-const TODAY_DATE = "{date_iso}";
-const TODAY_RANKING = "{ranking}";
-
-function navigateDate() {{
+function navigate() {{
   const d = document.getElementById('dateSelect').value;
   const r = document.getElementById('rankSelect').value;
-  const suffix = (r !== 'best') ? `-${{r}}` : '';
-  const candidates = [`${{d}}${{suffix}}.html`, `${{d}}.html`];
-  const available = MANIFEST.files || [];
-  for (const c of candidates) {{
-    if (available.includes(c)) {{ window.location.href = c; return; }}
+  const suffix = r !== 'best' ? '-' + r : '';
+  const target = d + suffix + '.html';
+  const files  = MANIFEST.files || [];
+  if (files.includes(target) || target === window.location.pathname.split('/').pop()) {{
+    window.location.href = target;
+  }} else {{
+    // fallback: try the best-ranking page for that date
+    window.location.href = d + '.html';
   }}
-  // fallback: try anyway
-  window.location.href = candidates[0];
-}}
-
-function navigateRanking() {{
-  const d = document.getElementById('dateSelect').value;
-  const r = document.getElementById('rankSelect').value;
-  const suffix = (r !== 'best') ? `-${{r}}` : '';
-  window.location.href = `${{d}}${{suffix}}.html`;
 }}
 </script>
 </body>
 </html>"""
 
-INDEX_TEMPLATE = """<!DOCTYPE html>
+
+def build_index(manifest: dict) -> str:
+    cal_entries = json.dumps(manifest.get("entries", []))
+    return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -527,52 +611,56 @@ INDEX_TEMPLATE = """<!DOCTYPE html>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900&family=Source+Serif+4:ital,wght@0,300;0,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-{css}
-.calendar{{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-top:32px}}
-.cal-entry{{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:14px 16px;transition:border-color .2s,transform .15s;cursor:pointer}}
-.cal-entry:hover{{border-color:var(--amber);transform:translateY(-2px)}}
-.cal-entry a{{display:block;text-decoration:none;color:inherit}}
-.cal-date{{font-family:'DM Mono',monospace;font-size:11px;color:var(--amber);letter-spacing:.1em;margin-bottom:4px}}
-.cal-weekday{{font-size:13px;color:var(--text)}}
-.cal-pts{{font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);margin-top:4px}}
-h2{{font-family:'Playfair Display',serif;font-size:1.4rem;font-style:italic;color:var(--text);margin-top:48px;margin-bottom:4px;padding-bottom:10px;border-bottom:1px solid var(--border)}}
-.intro{{font-size:15px;color:var(--text-dim);font-weight:300;margin-top:12px;max-width:700px;line-height:1.6}}
+{PAGE_CSS}
+.hero{{max-width:680px;margin:48px auto 0}}
+.hero p{{font-size:15px;color:var(--text-dim);font-weight:300;line-height:1.7}}
+h2{{font-family:'Playfair Display',serif;font-size:1.5rem;font-style:italic;
+    color:var(--text);margin:48px 0 20px;padding-bottom:12px;border-bottom:1px solid var(--border)}}
+.calendar{{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px}}
+.cal-card{{background:var(--surface);border:1px solid var(--border);border-radius:6px;
+           padding:14px 16px;transition:border-color .2s,transform .15s}}
+.cal-card:hover{{border-color:var(--amber);transform:translateY(-2px)}}
+.cal-card a{{display:block;color:inherit}}
+.cal-date{{font-family:'DM Mono',monospace;font-size:11px;color:var(--amber);
+            letter-spacing:.1em;margin-bottom:4px}}
+.cal-day{{font-size:13px;color:var(--text)}}
+.cal-meta{{font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);margin-top:4px}}
 </style>
 </head>
 <body>
 <div class="masthead">
   <div class="masthead-sub">Daily Intelligence Brief</div>
   <h1>Hacker <span>News</span></h1>
-  <div class="masthead-date">DIGEST ARCHIVE — AI &amp; TECH SUMMARIES</div>
+  <div class="masthead-date">AI &amp; TECH DIGEST ARCHIVE</div>
   <div class="masthead-rule"></div>
 </div>
-<div class="container" style="padding-top:40px;padding-bottom:80px">
-  <p class="intro">
-    Each day's top 20 Hacker News stories — with 300-word article summaries, key highlights,
-    and detailed comment sentiment analysis. Categorised into AI Fundamentals, AI Applications,
-    Politics, and Others.
-  </p>
-  <h2>Available Reports</h2>
-  <div class="calendar" id="calendar"></div>
+<div class="container" style="padding-bottom:80px">
+  <div class="hero">
+    <p>Each day's top 20 Hacker News stories — article summaries (300+ words), key highlights,
+    and comment sentiment analysis — categorised into AI Fundamentals, AI Applications,
+    Politics, and Others. Updated automatically every day.</p>
+  </div>
+  <h2>Reports</h2>
+  <div class="calendar" id="cal"></div>
 </div>
 <div class="footer">
   <div class="container">
-    <p>Updated daily via GitHub Actions · Powered by HN API &amp; Anthropic Claude</p>
+    <p>Updated daily via GitHub Actions · HN API + Algolia · Claude {CLAUDE_MODEL} via Claude Code CLI</p>
   </div>
 </div>
 <script>
-const MANIFEST = {manifest_json};
-const cal = document.getElementById('calendar');
-(MANIFEST.entries || []).forEach(e => {{
+const entries = {cal_entries};
+const cal = document.getElementById('cal');
+entries.forEach(e => {{
+  const d  = new Date(e.date + 'T12:00:00Z');
+  const wd = d.toLocaleDateString('en-US', {{weekday:'short', timeZone:'UTC'}});
+  const pr = d.toLocaleDateString('en-US', {{month:'short', day:'numeric', year:'numeric', timeZone:'UTC'}});
   const div = document.createElement('div');
-  div.className = 'cal-entry';
-  const d = new Date(e.date + 'T12:00:00Z');
-  const weekday = d.toLocaleDateString('en-US', {{weekday:'short', timeZone:'UTC'}});
-  const pretty  = d.toLocaleDateString('en-US', {{month:'short', day:'numeric', year:'numeric', timeZone:'UTC'}});
+  div.className = 'cal-card';
   div.innerHTML = `<a href="${{e.file}}">
     <div class="cal-date">${{e.date}}</div>
-    <div class="cal-weekday">${{weekday}} · ${{pretty}}</div>
-    <div class="cal-pts">${{e.story_count}} stories · ${{e.ranking}}</div>
+    <div class="cal-day">${{wd}} · ${{pr}}</div>
+    <div class="cal-meta">${{e.story_count}} stories · ${{e.ranking.toUpperCase()}}</div>
   </a>`;
   cal.appendChild(div);
 }});
@@ -581,178 +669,69 @@ const cal = document.getElementById('calendar');
 </html>"""
 
 
-# ── Manifest + Index ──────────────────────────────────────────────────────────
+# ── Entry Point ───────────────────────────────────────────────────────────────
 
-def load_manifest() -> dict:
-    if MANIFEST.exists():
-        return json.loads(MANIFEST.read_text())
-    return {"entries": [], "files": []}
+def run(target: date, ranking: str, n_stories: int):
+    print(f"  Date={target}  Ranking={ranking}  Stories={n_stories}")
 
-
-def save_manifest(m: dict):
-    MANIFEST.write_text(json.dumps(m, indent=2))
-
-
-def update_manifest(target: date, filename: str, ranking: str, n: int):
-    m = load_manifest()
-    date_iso = target.isoformat()
-
-    # Remove existing entry for same date+ranking
-    m["entries"] = [e for e in m["entries"]
-                    if not (e["date"] == date_iso and e["ranking"] == ranking)]
-    m["entries"].insert(0, {
-        "date":        date_iso,
-        "file":        filename,
-        "ranking":     ranking,
-        "story_count": n,
-    })
-    m["entries"].sort(key=lambda e: e["date"], reverse=True)
-
-    m["files"] = [e["file"] for e in m["entries"]]
-    save_manifest(m)
-    return m
-
-
-def build_date_options(current_date: str, manifest: dict) -> str:
-    opts = ""
-    seen = set()
-    for e in manifest.get("entries", []):
-        d = e["date"]
-        if d in seen:
-            continue
-        seen.add(d)
-        sel = ' selected' if d == current_date else ''
-        opts += f'<option value="{d}"{sel}>{d}</option>\n'
-    return opts
-
-
-def build_ranking_options(current: str) -> str:
-    rankings = ["best", "top", "new", "ask", "show"]
-    opts = ""
-    for r in rankings:
-        sel = ' selected' if r == current else ''
-        opts += f'<option value="{r}"{sel}>{r.upper()}</option>\n'
-    return opts
-
-
-def regenerate_index(manifest: dict):
-    html = INDEX_TEMPLATE.format(
-        css=PAGE_CSS,
-        manifest_json=json.dumps(manifest),
-    )
-    (OUTPUT_DIR / "index.html").write_text(html, encoding="utf-8")
-
-
-# ── Main Pipeline ─────────────────────────────────────────────────────────────
-
-def main():
-    ap = argparse.ArgumentParser(description="Generate HN Daily Digest")
-    ap.add_argument("--date",     default=None,   help="YYYY-MM-DD (default: yesterday)")
-    ap.add_argument("--ranking",  default="best", choices=list(RANKING_TAGS.keys()))
-    ap.add_argument("--stories",  default=20, type=int)
-    args = ap.parse_args()
-
-    target = (date.fromisoformat(args.date) if args.date
-              else date.today() - timedelta(days=1))
-
-    print(f"▶ Date: {target}  Ranking: {args.ranking}  Stories: {args.stories}")
-
-    # 1. Fetch story list
-    print("  Fetching story list from Algolia…")
-    stories = get_stories_for_date(target, n=args.stories, ranking=args.ranking)
+    print("  Fetching story list…")
+    stories = get_stories_for_date(target, n=n_stories, ranking=ranking)
     if not stories:
-        print("  No stories found — exiting.")
-        sys.exit(1)
-    print(f"  Found {len(stories)} stories.")
+        print("  ⚠ No stories found — skipping.")
+        return
 
-    # 2. Analyze each story
+    print(f"  Found {len(stories)} stories. Starting analysis…")
     for i, story in enumerate(stories):
-        title = story.get("title", "")[:70]
-        print(f"  [{i+1:02}/{len(stories)}] {title}…")
-        url       = story.get("url", "")
-        hn_id     = story.get("objectID") or story.get("story_id")
-        article   = fetch_article(url)
-        comments  = get_top_comments(int(hn_id)) if hn_id else []
+        title = story.get("title", "")[:65]
+        print(f"  [{i+1:02}/{len(stories)}] {title}")
+        hn_id    = story.get("objectID", "")
+        article  = fetch_article(story.get("url", ""))
+        comments = get_top_comments(int(hn_id)) if hn_id else []
 
         try:
             story["analysis"] = analyze_story(story, article, comments)
         except Exception as e:
-            print(f"         ⚠ Analysis failed: {e}")
+            print(f"         ⚠ Analysis error: {e}")
             story["analysis"] = {
-                "topic_category": "Others",
-                "summary_paragraphs": [story.get("title", "Analysis unavailable.")],
+                "topic_category":    "Others",
+                "summary_paragraphs": [story.get("title", ""), "Analysis unavailable."],
                 "highlight": "", "key_points": [], "sentiments": [],
             }
-        time.sleep(0.5)   # gentle rate limiting
+        time.sleep(0.4)   # gentle pacing
 
-    # 3. Build HTML sections
-    cats   = {"AI Fundamentals":[], "AI Applications":[], "Politics":[], "Others":[]}
-    for i, s in enumerate(stories):
-        cat = s.get("analysis",{}).get("topic_category","Others")
-        if cat not in cats:
-            cat = "Others"
-        cats[cat].append((i+1, s))
-
-    # Determine output filename
-    suffix   = f"-{args.ranking}" if args.ranking != "best" else ""
+    suffix   = f"-{ranking}" if ranking != "best" else ""
     filename = f"{target.isoformat()}{suffix}.html"
-
-    # Load manifest to build date selector
-    manifest    = load_manifest()
-    date_str    = target.strftime("%A, %B %d, %Y").upper()
-    date_iso    = target.isoformat()
-
-    # Temporarily add current entry so it appears in the selector
+    manifest = load_manifest()
+    # Add current date to date selector before building the page
     tmp_manifest = dict(manifest)
-    tmp_manifest["entries"] = [{"date": date_iso, "file": filename,
-                                 "ranking": args.ranking, "story_count": len(stories)}] \
-                               + [e for e in manifest.get("entries",[])
-                                  if e["date"] != date_iso or e["ranking"] != args.ranking]
-    tmp_manifest["entries"].sort(key=lambda e: e["date"], reverse=True)
-
-    date_opts    = build_date_options(date_iso, tmp_manifest)
-    ranking_opts = build_ranking_options(args.ranking)
-
-    sections = ""
-    for cat, stories_in_cat in cats.items():
-        if not stories_in_cat:
-            continue
-        bid  = BADGE_CLASS[cat]
-        sid  = SECTION_ID[cat]
-        sections += f"""
-<div class="section-header" id="{sid}">
-  <span class="section-badge {bid}">{cat}</span>
-  <div class="section-line"></div>
-</div>
-"""
-        if cat == "Others":
-            sections += others_table_html(stories_in_cat)
-        else:
-            for rank, story in stories_in_cat:
-                sections += story_card_html(rank, story)
-
-    html = PAGE_TEMPLATE.format(
-        css           = PAGE_CSS,
-        date_iso      = date_iso,
-        date_str      = date_str,
-        n_stories     = len(stories),
-        ranking_label = args.ranking.upper(),
-        ranking       = args.ranking,
-        date_options  = date_opts,
-        ranking_options = ranking_opts,
-        sections_html = sections,
-        manifest_json = json.dumps(tmp_manifest),
+    tmp_manifest["entries"] = (
+        [{"date": target.isoformat(), "file": filename,
+          "ranking": ranking, "story_count": len(stories)}]
+        + [e for e in manifest.get("entries", [])
+           if not (e["date"] == target.isoformat() and e["ranking"] == ranking)]
     )
+    tmp_manifest["entries"].sort(key=lambda e: e["date"], reverse=True)
+    tmp_manifest["files"] = [e["file"] for e in tmp_manifest["entries"]]
 
-    out = OUTPUT_DIR / filename
-    out.write_text(html, encoding="utf-8")
-    print(f"  ✔ Saved → {out}")
+    html = build_page(target, stories, ranking, tmp_manifest)
+    (OUTPUT_DIR / filename).write_text(html, encoding="utf-8")
+    print(f"  ✔ {OUTPUT_DIR / filename}")
 
-    # 4. Update manifest + index
-    manifest = update_manifest(target, filename, args.ranking, len(stories))
-    regenerate_index(manifest)
-    print("  ✔ manifest.json + index.html updated")
-    print("Done ✓")
+    manifest = update_manifest(target, filename, ranking, len(stories))
+    (OUTPUT_DIR / "index.html").write_text(build_index(manifest), encoding="utf-8")
+    print("  ✔ index.html + manifest.json")
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--date",    default=None)
+    ap.add_argument("--ranking", default="best", choices=list(RANKING_TAGS.keys()))
+    ap.add_argument("--stories", default=20, type=int)
+    args = ap.parse_args()
+
+    target = (date.fromisoformat(args.date) if args.date
+              else date.today() - timedelta(days=1))
+    run(target, args.ranking, args.stories)
 
 
 if __name__ == "__main__":
