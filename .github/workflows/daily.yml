@@ -1,0 +1,91 @@
+name: Daily HN Digest
+
+on:
+  # ── Automatic daily run ──────────────────────────────────────────────────
+  schedule:
+    - cron: "0 8 * * *"   # 08:00 UTC = ~midnight Pacific / morning Europe
+
+  # ── Manual trigger with optional overrides ───────────────────────────────
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Date to generate (YYYY-MM-DD, default: yesterday)"
+        required: false
+        default: ""
+      ranking:
+        description: "Ranking method"
+        required: false
+        default: "best"
+        type: choice
+        options: [best, top, new, ask, show]
+      stories:
+        description: "Number of stories (default: 20)"
+        required: false
+        default: "20"
+
+permissions:
+  contents: write   # needed to push to gh-pages / commit generated files
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Fetch full history so we can push to the same branch
+          fetch-depth: 0
+
+      # ── 2. Python setup ──────────────────────────────────────────────────
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # ── 3. Resolve inputs ────────────────────────────────────────────────
+      - name: Resolve date and ranking
+        id: params
+        run: |
+          DATE="${{ github.event.inputs.date }}"
+          if [ -z "$DATE" ]; then
+            DATE=$(date -u -d "yesterday" +%Y-%m-%d 2>/dev/null \
+                   || date -u -v-1d +%Y-%m-%d)   # macOS fallback (runners are Linux)
+          fi
+          RANKING="${{ github.event.inputs.ranking }}"
+          if [ -z "$RANKING" ]; then RANKING="best"; fi
+          STORIES="${{ github.event.inputs.stories }}"
+          if [ -z "$STORIES" ]; then STORIES="20"; fi
+          echo "date=$DATE"     >> $GITHUB_OUTPUT
+          echo "ranking=$RANKING" >> $GITHUB_OUTPUT
+          echo "stories=$STORIES" >> $GITHUB_OUTPUT
+
+      # ── 4. Generate digest ───────────────────────────────────────────────
+      - name: Generate HN digest
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          python generate_daily.py \
+            --date    "${{ steps.params.outputs.date }}"    \
+            --ranking "${{ steps.params.outputs.ranking }}" \
+            --stories "${{ steps.params.outputs.stories }}"
+
+      # ── 5. Commit & push generated files ─────────────────────────────────
+      - name: Commit and push
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add site/
+          # Only commit if there are actual changes
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "digest: ${{ steps.params.outputs.date }} [${{ steps.params.outputs.ranking }}]"
+            git push
+          fi
