@@ -49,7 +49,16 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # ── 3. Resolve inputs ────────────────────────────────────────────────
+      # ── 3. Install Gemini CLI ───────────────────────────────────────────
+      - name: Set up Node.js (for Gemini CLI)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Gemini CLI
+        run: npm install -g @google/gemini-cli
+
+      # ── 4. Resolve inputs ────────────────────────────────────────────────
       - name: Resolve date and ranking
         id: params
         run: |
@@ -66,17 +75,17 @@ jobs:
           echo "ranking=$RANKING" >> $GITHUB_OUTPUT
           echo "stories=$STORIES" >> $GITHUB_OUTPUT
 
-      # ── 4. Generate digest ───────────────────────────────────────────────
+      # ── 5. Generate digest ───────────────────────────────────────────────
       - name: Generate HN digest
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           python generate_daily.py \
             --date    "${{ steps.params.outputs.date }}"    \
             --ranking "${{ steps.params.outputs.ranking }}" \
             --stories "${{ steps.params.outputs.stories }}"
 
-      # ── 5. Commit & push generated files ─────────────────────────────────
+      # ── 6. Commit & push generated files ─────────────────────────────────
       - name: Commit and push
         run: |
           git config user.name  "github-actions[bot]"

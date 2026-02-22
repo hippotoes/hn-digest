@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-HN Daily Digest Generator  ·  uses Claude Code CLI (claude -p)
+HN Daily Digest Generator  ·  uses Gemini CLI (gemini -p)
 ──────────────────────────────────────────────────────────────
 Fetches top HN stories via Algolia + Firebase APIs, then calls
-the `claude` CLI for each story to produce:
+the `gemini` CLI for each story to produce:
   • 300-word article summary with highlights
   • Sentiment table based on real comment threads
   • Topic categorisation (AI Fundamentals / AI Applications / Politics / Others)
@@ -22,7 +22,7 @@ from html import escape
 
 # ── Model & Paths ─────────────────────────────────────────────────────────────
 
-CLAUDE_MODEL = "claude-sonnet-4-6"     # Sonnet 4.6 — fast, cost-effective
+GEMINI_MODEL = "gemini-2.0-flash"     # Fast, cost-effective
 
 OUTPUT_DIR = Path("site")
 OUTPUT_DIR.mkdir(exist_ok=True)
@@ -121,38 +121,37 @@ def fetch_article(url: str, max_chars: int = 10_000) -> str:
         return f"[Article fetch failed: {e}]"
 
 
-# ── Claude Code CLI ────────────────────────────────────────────────────────────
+# ── Gemini CLI ────────────────────────────────────────────────────────────────
 
-def call_claude(prompt: str) -> str:
+def call_gemini(prompt: str) -> str:
     """
-    Invoke `claude` CLI in non-interactive print mode.
-    The ANTHROPIC_API_KEY env var is picked up automatically.
+    Invoke `gemini` CLI in non-interactive mode.
+    The GEMINI_API_KEY env var is picked up automatically.
 
-    Uses --output-format json so the result field contains Claude's response.
+    Uses --output-format json so the response field contains Gemini's response.
     Falls back to raw stdout if JSON parsing fails.
     """
     proc = subprocess.run(
         [
-            "claude",
-            "--model",         CLAUDE_MODEL,
+            "gemini",
+            "--model",         GEMINI_MODEL,
             "--output-format", "json",
             "-p",              prompt,
         ],
         capture_output=True,
         text=True,
         timeout=180,
-        # inherit the calling process's env (ANTHROPIC_API_KEY flows through)
     )
 
     if proc.returncode != 0:
         stderr = proc.stderr.strip()[:400]
-        raise RuntimeError(f"claude CLI exited {proc.returncode}: {stderr}")
+        raise RuntimeError(f"gemini CLI exited {proc.returncode}: {stderr}")
 
-    # Claude Code wraps the response: {"result": "...", "session_id": "...", ...}
+    # Gemini CLI wraps the response: {"response": "...", "session_id": "...", ...}
     try:
         outer = json.loads(proc.stdout)
-        if isinstance(outer, dict) and "result" in outer:
-            return outer["result"].strip()
+        if isinstance(outer, dict) and "response" in outer:
+            return outer["response"].strip()
     except (json.JSONDecodeError, TypeError):
         pass
 
@@ -182,7 +181,7 @@ ANALYSIS_SCHEMA = """{
 
 
 def analyze_story(story: dict, article: str, comments: list) -> dict:
-    """Ask Claude (via CLI) to produce a structured JSON analysis."""
+    """Ask Gemini (via CLI) to produce a structured JSON analysis."""
 
     comments_block = "\n\n".join(
         f"[{c['author']} score={c.get('score', 0)}]: {c['text']}"
@@ -224,7 +223,7 @@ def analyze_story(story: dict, article: str, comments: list) -> dict:
         {ANALYSIS_SCHEMA}
     """).strip()
 
-    raw = call_claude(prompt)
+    raw = call_gemini(prompt)
 
     # Strip any accidental markdown fencing
     raw = re.sub(r"^```(?:json)?\s*", "", raw.strip(), flags=re.I)
@@ -237,7 +236,7 @@ def analyze_story(story: dict, article: str, comments: list) -> dict:
         m = re.search(r"\{[\s\S]*\}", raw)
         if m:
             return json.loads(m.group())
-        raise ValueError(f"Could not parse JSON from Claude response:\n{raw[:300]}")
+        raise ValueError(f"Could not parse JSON from Gemini response:\n{raw[:300]}")
 
 
 # ── HTML Constants ─────────────────────────────────────────────────────────────
@@ -572,7 +571,7 @@ def build_page(target: date, stories: list, ranking: str, manifest: dict) -> str
 
 <div class="footer">
   <div class="container">
-    <p>Data: HN Algolia Search + Firebase APIs · Summaries: Claude {CLAUDE_MODEL} via Claude Code CLI</p>
+    <p>Data: HN Algolia Search + Firebase APIs · Summaries: Gemini {GEMINI_MODEL} via Gemini CLI</p>
     <p style="margin-top:6px;font-size:10px">
       Sentiment analysis uses real HN comment threads fetched at generation time.
       Agreement estimates are inferred from comment upvote distribution and reply volume.
@@ -645,7 +644,7 @@ h2{{font-family:'Playfair Display',serif;font-size:1.5rem;font-style:italic;
 </div>
 <div class="footer">
   <div class="container">
-    <p>Updated daily via GitHub Actions · HN API + Algolia · Claude {CLAUDE_MODEL} via Claude Code CLI</p>
+    <p>Updated daily via GitHub Actions · HN API + Algolia · Gemini {GEMINI_MODEL} via Gemini CLI</p>
   </div>
 </div>
 <script>
