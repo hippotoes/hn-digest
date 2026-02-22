@@ -22,7 +22,7 @@ from html import escape
 
 # ── Model & Paths ─────────────────────────────────────────────────────────────
 
-GEMINI_MODEL = "gemini-2.0-flash"     # Fast, cost-effective
+GEMINI_MODEL = "gemini-1.5-pro"     # High quality, Pro-tier model
 
 OUTPUT_DIR = Path("site")
 OUTPUT_DIR.mkdir(exist_ok=True)
@@ -696,7 +696,7 @@ def run(target: date, ranking: str, n_stories: int):
                 "summary_paragraphs": [story.get("title", ""), "Analysis unavailable."],
                 "highlight": "", "key_points": [], "sentiments": [],
             }
-        time.sleep(0.4)   # gentle pacing
+        time.sleep(5.0)   # stay within 15 RPM Free Tier limit
 
     suffix   = f"-{ranking}" if ranking != "best" else ""
     filename = f"{target.isoformat()}{suffix}.html"
