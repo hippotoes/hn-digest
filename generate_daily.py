@@ -168,6 +168,7 @@ ANALYSIS_SCHEMA = """{
     "<paragraph 3 (80-100 words):  why the HN/tech community cares>"
   ],
   "highlight": "<1-2 sentence compelling stat, quote, or key insight from the article>",
+  "concise_sentiment": "<1-2 sentence extremely brief community reaction summary>",
   "key_points": ["<point 1>","<point 2>","<point 3>","<point 4>","<point 5>"],
   "sentiments": [
     {
@@ -420,8 +421,10 @@ def others_table_html(stories: list) -> str:
         pts   = story.get("points", 0)
         ncmts = story.get("num_comments", 0)
         hn_id = story.get("objectID", "")
-        para  = (a.get("summary_paragraphs") or [""])[0]
-        short = escape(para[:220] + "…" if len(para) > 220 else para)
+        # Use full paragraphs for a ~150 word summary
+        para  = " ".join(a.get("summary_paragraphs", []))
+        short = escape(para[:850] + "…" if len(para) > 850 else para)
+        sent  = escape(a.get("concise_sentiment", "N/A"))
         rows += (
             f"<tr>"
             f"<td><span class='rank-num'>#{rank}</span></td>"
@@ -429,18 +432,19 @@ def others_table_html(stories: list) -> str:
             f"<td><span class='pts-mono'>{pts}</span></td>"
             f"<td><a href='https://news.ycombinator.com/item?id={hn_id}' target='_blank'>"
             f"<span class='cmts-mono'>{ncmts}</span></a></td>"
-            f"<td>{short}</td>"
+            f"<td><div style='font-size:12px; line-height:1.4;'>{short}</div></td>"
+            f"<td><div style='font-size:11px; font-style:italic; color:var(--amber-light);'>{sent}</div></td>"
             f"</tr>"
         )
     return f"""
 <div class="story-card">
   <div class="story-body" style="padding:18px 26px">
     <p style="font-size:14px;color:var(--text-dim);margin-bottom:18px">
-      Remaining stories — concise reference table.
+      Remaining stories — detailed reference table.
     </p>
     <div class="others-table-wrap">
       <table class="others-table">
-        <thead><tr><th>#</th><th>Story</th><th>Pts</th><th>Cmts</th><th>Summary</th></tr></thead>
+        <thead><tr><th>#</th><th>Story</th><th>Pts</th><th>Cmts</th><th>Detailed Summary</th><th>Community Sentiment</th></tr></thead>
         <tbody>{rows}</tbody>
       </table>
     </div>
