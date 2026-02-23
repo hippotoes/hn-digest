@@ -79,7 +79,7 @@ def get_hn_item(item_id: int) -> dict:
         return {}
 
 
-def get_top_comments(item_id: int, max_top: int = 30, max_replies: int = 3) -> list:
+def get_top_comments(item_id: int, max_top: int = 50, max_replies: int = 3) -> list:
     """Return top-level comments + shallow replies using parallel fetching."""
     item = get_hn_item(item_id)
     kids = (item.get("kids") or [])[:max_top]
@@ -115,7 +115,7 @@ def get_top_comments(item_id: int, max_top: int = 30, max_replies: int = 3) -> l
     return [r for r in results if r]
 
 
-def fetch_article(url: str, max_chars: int = 10_000) -> str:
+def fetch_article(url: str, max_chars: int = 20_000) -> str:
     if not url:
         return "[No article URL — likely an Ask/Show HN post]"
     if url.lower().endswith(".pdf"):
@@ -177,9 +177,9 @@ def call_gemini(prompt: str) -> str:
 ANALYSIS_SCHEMA = """{
   "topic_category": "AI Fundamentals|AI Applications|Tech|Politics|Others",
   "summary_paragraphs": [
-    "<paragraph 1 (100-150 words): core story, context, why submitted>",
-    "<paragraph 2 (100-150 words): key data, quotes, technical or policy detail>",
-    "<paragraph 3 (80-100 words):  why the HN/tech community cares>"
+    "<paragraph 1 (150-180 words): core story, deep context, technical foundation>",
+    "<paragraph 2 (150-180 words): data points, specific quotes, implementation details>",
+    "<paragraph 3 (100-120 words): societal impact, long-term tech implications, why HN cares>"
   ],
   "highlight": "<1-2 sentence compelling stat, quote, or key insight from the article>",
   "concise_sentiment": "<1-2 sentence extremely brief community reaction summary>",
@@ -217,17 +217,18 @@ def analyze_story(story: dict, article: str, comments: list) -> dict:
         Points   : {story.get('points', 0)}
         Comments : {story.get('num_comments', 0)}
 
-        ── ARTICLE TEXT (up to 10 000 chars) ────────────────────────────
+        ── ARTICLE TEXT (up to 20 000 chars) ────────────────────────────
         {article}
 
         ── HN COMMENTS (top threads + shallow replies) ───────────────────
         {comments_block}
 
         ── INSTRUCTIONS ─────────────────────────────────────────────────
-        • summary_paragraphs: total must exceed 300 words across the three paragraphs.
+        • summary_paragraphs: total must exceed 400 words across the three paragraphs. 
+          Be deep, technical, and analytical. Don't just summarize; provide context.
         • highlight: a single memorable stat, pull-quote, or key insight.
-        • sentiments: identify 3-5 distinct opinion clusters from the REAL comments.
-          For each cluster, cite specific phrasing or arguments visible in the comments.
+        • sentiments: identify 4-6 distinct, deep opinion clusters from the REAL comments.
+          For each cluster, cite specific phrasing or unique arguments visible in the comments.
           estimated_agreement = rough number of commenters for this cluster,
           inferred from upvote scores and reply counts in the comments block.
           If comments are sparse, say so and reason from known HN community patterns.
