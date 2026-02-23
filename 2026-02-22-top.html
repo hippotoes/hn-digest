@@ -9,7 +9,7 @@
 <style>:root{--bg:#0f0e0c;--bg2:#181613;--bg3:#211f1b;--surface:#242119;--border:#332f28;
 --amber:#d4a017;--amber-light:#f0bf4c;--amber-dim:rgba(212,160,23,.12);
 --text:#e8e2d6;--text-dim:#9c9285;--text-muted:#5a5446;
---red:#c45c3a;--green:#5a9e6f;--blue:#4a8ab5;--purple:#8a6bbf;}
+--red:#c45c3a;--green:#5a9e6f;--blue:#4a8ab5;--purple:#8a6bbf;--teal:#4ab5a8;}
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:var(--bg);color:var(--text);font-family:'Source Serif 4',Georgia,serif;font-size:16px;line-height:1.7}
 a{color:inherit;text-decoration:none}
@@ -31,6 +31,7 @@ a:hover{opacity:.75}
 .toc a{font-family:'DM Mono',monospace;font-size:11px;padding:4px 10px;border-radius:3px;transition:opacity .15s}
 .toc a.ai-fund{color:#e87a5a;border:1px solid rgba(196,92,58,.3)}
 .toc a.ai-app{color:#7ec890;border:1px solid rgba(90,158,111,.3)}
+.toc a.tech{color:var(--teal);border:1px solid rgba(74,181,168,.3)}
 .toc a.pol{color:#7ab8e0;border:1px solid rgba(74,138,181,.3)}
 .toc a.others{color:var(--text-dim);border:1px solid var(--border)}
 .toc a:hover{opacity:.7}
@@ -39,6 +40,7 @@ a:hover{opacity:.75}
 .section-badge{font-family:'DM Mono',monospace;font-size:10px;font-weight:500;letter-spacing:.25em;text-transform:uppercase;padding:5px 14px;border-radius:3px;white-space:nowrap}
 .badge-ai-fund{background:rgba(196,92,58,.15);color:#e87a5a;border:1px solid rgba(196,92,58,.3)}
 .badge-ai-app{background:rgba(90,158,111,.15);color:#7ec890;border:1px solid rgba(90,158,111,.3)}
+.badge-tech{background:rgba(74,181,168,.15);color:var(--teal);border:1px solid rgba(74,181,168,.3)}
 .badge-pol{background:rgba(74,138,181,.15);color:#7ab8e0;border:1px solid rgba(74,138,181,.3)}
 .badge-others{background:rgba(122,106,90,.12);color:var(--text-dim);border:1px solid var(--border)}
 .section-line{flex:1;height:1px;background:var(--border)}
@@ -98,7 +100,7 @@ a:hover{opacity:.75}
 <div class="masthead">
   <div class="masthead-sub">Daily Intelligence Brief</div>
   <h1>Hacker <span>News</span></h1>
-  <div class="masthead-date">SUNDAY, FEBRUARY 22, 2026 · TOP 6 · RANKED BY TOP</div>
+  <div class="masthead-date">SUNDAY, FEBRUARY 22, 2026 · TOP 5 · RANKED BY TOP</div>
   <div class="masthead-rule"></div>
 </div>
 
@@ -120,6 +122,7 @@ a:hover{opacity:.75}
     <div class="toc">
       <a href="#ai-fund" class="ai-fund">AI Fundamentals</a>
       <a href="#ai-app"  class="ai-app">AI Applications</a>
+      <a href="#tech"    class="tech">Tech</a>
       <a href="#politics" class="pol">Politics</a>
       <a href="#others"  class="others">Others</a>
     </div>
@@ -132,12 +135,12 @@ a:hover{opacity:.75}
 <div class="story-card">
   <div class="story-body" style="padding:18px 26px">
     <p style="font-size:14px;color:var(--text-dim);margin-bottom:18px">
-      Remaining stories — detailed reference table.
+      Remaining stories — comprehensive digest table.
     </p>
     <div class="others-table-wrap">
       <table class="others-table">
-        <thead><tr><th>#</th><th>Story</th><th>Pts</th><th>Cmts</th><th>Detailed Summary</th><th>Community Sentiment</th></tr></thead>
-        <tbody><tr><td><span class='rank-num'>#1</span></td><td><a href='https://hawksley.org/2026/02/17/timeframe.html' target='_blank'>I built Timeframe, our family e-paper dashboard</a></td><td><span class='pts-mono'>1265</span></td><td><a href='https://news.ycombinator.com/item?id=47113728' target='_blank'><span class='cmts-mono'>308</span></a></td><td><div style='font-size:12px; line-height:1.4;'>I built Timeframe, our family e-paper dashboard Analysis unavailable.</div></td><td><div style='font-size:11px; font-style:italic; color:var(--amber-light);'>N/A</div></td></tr><tr><td><span class='rank-num'>#2</span></td><td><a href='https://discuss.ai.google.dev/t/account-restricted-without-warning-google-ai-ultra-oauth-via-openclaw/122778' target='_blank'>Google restricting Google AI Pro/Ultra subscribers for using OpenClaw</a></td><td><span class='pts-mono'>690</span></td><td><a href='https://news.ycombinator.com/item?id=47115805' target='_blank'><span class='cmts-mono'>575</span></a></td><td><div style='font-size:12px; line-height:1.4;'>Google restricting Google AI Pro/Ultra subscribers for using OpenClaw Analysis unavailable.</div></td><td><div style='font-size:11px; font-style:italic; color:var(--amber-light);'>N/A</div></td></tr><tr><td><span class='rank-num'>#3</span></td><td><a href='https://joinloops.org/' target='_blank'>Loops is a federated, open-source TikTok</a></td><td><span class='pts-mono'>484</span></td><td><a href='https://news.ycombinator.com/item?id=47113618' target='_blank'><span class='cmts-mono'>315</span></a></td><td><div style='font-size:12px; line-height:1.4;'>Loops is a federated, open-source TikTok Analysis unavailable.</div></td><td><div style='font-size:11px; font-style:italic; color:var(--amber-light);'>N/A</div></td></tr><tr><td><span class='rank-num'>#4</span></td><td><a href='https://cia-factbook-archive.fly.dev/' target='_blank'>Show HN: CIA World Factbook Archive (1990–2025), searchable and exportable</a></td><td><span class='pts-mono'>383</span></td><td><a href='https://news.ycombinator.com/item?id=47114530' target='_blank'><span class='cmts-mono'>83</span></a></td><td><div style='font-size:12px; line-height:1.4;'>Show HN: CIA World Factbook Archive (1990–2025), searchable and exportable Analysis unavailable.</div></td><td><div style='font-size:11px; font-style:italic; color:var(--amber-light);'>N/A</div></td></tr><tr><td><span class='rank-num'>#5</span></td><td><a href='https://www.popsci.com/technology/robot-vacuum-army/' target='_blank'>Man accidentally gains control of 7k robot vacuums</a></td><td><span class='pts-mono'>332</span></td><td><a href='https://news.ycombinator.com/item?id=47111400' target='_blank'><span class='cmts-mono'>185</span></a></td><td><div style='font-size:12px; line-height:1.4;'>Man accidentally gains control of 7k robot vacuums Analysis unavailable.</div></td><td><div style='font-size:11px; font-style:italic; color:var(--amber-light);'>N/A</div></td></tr><tr><td><span class='rank-num'>#6</span></td><td><a href='https://terrytao.wordpress.com/2026/02/16/six-math-essentials/' target='_blank'>Six Math Essentials</a></td><td><span class='pts-mono'>254</span></td><td><a href='https://news.ycombinator.com/item?id=47113796' target='_blank'><span class='cmts-mono'>56</span></a></td><td><div style='font-size:12px; line-height:1.4;'>Six Math Essentials Analysis unavailable.</div></td><td><div style='font-size:11px; font-style:italic; color:var(--amber-light);'>N/A</div></td></tr></tbody>
+        <thead><tr><th>Stats</th><th>Digest</th></tr></thead>
+        <tbody><tr><td style='width:100px;'><div class='rank-num' style='margin-bottom:4px'>#1</div><div class='pts-mono' style='margin-bottom:2px'>1368 pts</div><div class='cmts-mono'><a href='https://news.ycombinator.com/item?id=47113728' target='_blank'>326 c</a></div></td><td><div style='margin-bottom:8px;'><a href='https://hawksley.org/2026/02/17/timeframe.html' target='_blank' style='font-family:"Playfair Display",serif; font-size:1.1rem; font-weight:700; color:var(--text);'>I built Timeframe, our family e-paper dashboard</a></div><div style='font-size:14px; line-height:1.5; color:#c0b8a8;'>I built Timeframe, our family e-paper dashboard Analysis unavailable.</div></td></tr><tr><td style='width:100px;'><div class='rank-num' style='margin-bottom:4px'>#2</div><div class='pts-mono' style='margin-bottom:2px'>522 pts</div><div class='cmts-mono'><a href='https://news.ycombinator.com/item?id=47113618' target='_blank'>348 c</a></div></td><td><div style='margin-bottom:8px;'><a href='https://joinloops.org/' target='_blank' style='font-family:"Playfair Display",serif; font-size:1.1rem; font-weight:700; color:var(--text);'>Loops is a federated, open-source TikTok</a></div><div style='font-size:14px; line-height:1.5; color:#c0b8a8;'>Loops is a federated, open-source TikTok Analysis unavailable.</div></td></tr><tr><td style='width:100px;'><div class='rank-num' style='margin-bottom:4px'>#3</div><div class='pts-mono' style='margin-bottom:2px'>427 pts</div><div class='cmts-mono'><a href='https://news.ycombinator.com/item?id=47114530' target='_blank'>87 c</a></div></td><td><div style='margin-bottom:8px;'><a href='https://cia-factbook-archive.fly.dev/' target='_blank' style='font-family:"Playfair Display",serif; font-size:1.1rem; font-weight:700; color:var(--text);'>Show HN: CIA World Factbook Archive (1990–2025), searchable and exportable</a></div><div style='font-size:14px; line-height:1.5; color:#c0b8a8;'>Show HN: CIA World Factbook Archive (1990–2025), searchable and exportable Analysis unavailable.</div></td></tr><tr><td style='width:100px;'><div class='rank-num' style='margin-bottom:4px'>#4</div><div class='pts-mono' style='margin-bottom:2px'>380 pts</div><div class='cmts-mono'><a href='https://news.ycombinator.com/item?id=47111400' target='_blank'>205 c</a></div></td><td><div style='margin-bottom:8px;'><a href='https://www.popsci.com/technology/robot-vacuum-army/' target='_blank' style='font-family:"Playfair Display",serif; font-size:1.1rem; font-weight:700; color:var(--text);'>Man accidentally gains control of 7k robot vacuums</a></div><div style='font-size:14px; line-height:1.5; color:#c0b8a8;'>Man accidentally gains control of 7k robot vacuums Analysis unavailable.</div></td></tr><tr><td style='width:100px;'><div class='rank-num' style='margin-bottom:4px'>#5</div><div class='pts-mono' style='margin-bottom:2px'>14 pts</div><div class='cmts-mono'><a href='https://news.ycombinator.com/item?id=47113401' target='_blank'>0 c</a></div></td><td><div style='margin-bottom:8px;'><a href='https://github.com/puzpuzpuz/go-concurrent-map-bench' target='_blank' style='font-family:"Playfair Display",serif; font-size:1.1rem; font-weight:700; color:var(--text);'>Benchmarks for concurrent hash map implementations in Go</a></div><div style='font-size:14px; line-height:1.5; color:#c0b8a8;'>Benchmarks for concurrent hash map implementations in Go Analysis unavailable.</div></td></tr></tbody>
       </table>
     </div>
   </div>
@@ -146,7 +149,7 @@ a:hover{opacity:.75}
 
 <div class="footer">
   <div class="container">
-    <p>Data: HN Algolia Search + Firebase APIs · Summaries: Gemini gemini-2.0-flash via Gemini CLI</p>
+    <p>Data: HN Algolia Search + Firebase APIs · Summaries: Gemini via Gemini CLI</p>
     <p style="margin-top:6px;font-size:10px">
       Sentiment analysis uses real HN comment threads fetched at generation time.
       Agreement estimates are inferred from comment upvote distribution and reply volume.
@@ -155,7 +158,7 @@ a:hover{opacity:.75}
 </div>
 
 <script>
-const MANIFEST = {"entries": [{"date": "2026-02-22", "file": "2026-02-22-top.html", "ranking": "top", "story_count": 6}], "files": ["2026-02-22-top.html"]};
+const MANIFEST = {"entries": [{"date": "2026-02-22", "file": "2026-02-22-top.html", "ranking": "top", "story_count": 5}], "files": ["2026-02-22-top.html"]};
 function navigate() {
   const d = document.getElementById('dateSelect').value;
   const r = document.getElementById('rankSelect').value;

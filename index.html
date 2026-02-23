@@ -10,7 +10,7 @@
 :root{--bg:#0f0e0c;--bg2:#181613;--bg3:#211f1b;--surface:#242119;--border:#332f28;
 --amber:#d4a017;--amber-light:#f0bf4c;--amber-dim:rgba(212,160,23,.12);
 --text:#e8e2d6;--text-dim:#9c9285;--text-muted:#5a5446;
---red:#c45c3a;--green:#5a9e6f;--blue:#4a8ab5;--purple:#8a6bbf;}
+--red:#c45c3a;--green:#5a9e6f;--blue:#4a8ab5;--purple:#8a6bbf;--teal:#4ab5a8;}
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:var(--bg);color:var(--text);font-family:'Source Serif 4',Georgia,serif;font-size:16px;line-height:1.7}
 a{color:inherit;text-decoration:none}
@@ -32,6 +32,7 @@ a:hover{opacity:.75}
 .toc a{font-family:'DM Mono',monospace;font-size:11px;padding:4px 10px;border-radius:3px;transition:opacity .15s}
 .toc a.ai-fund{color:#e87a5a;border:1px solid rgba(196,92,58,.3)}
 .toc a.ai-app{color:#7ec890;border:1px solid rgba(90,158,111,.3)}
+.toc a.tech{color:var(--teal);border:1px solid rgba(74,181,168,.3)}
 .toc a.pol{color:#7ab8e0;border:1px solid rgba(74,138,181,.3)}
 .toc a.others{color:var(--text-dim);border:1px solid var(--border)}
 .toc a:hover{opacity:.7}
@@ -40,6 +41,7 @@ a:hover{opacity:.75}
 .section-badge{font-family:'DM Mono',monospace;font-size:10px;font-weight:500;letter-spacing:.25em;text-transform:uppercase;padding:5px 14px;border-radius:3px;white-space:nowrap}
 .badge-ai-fund{background:rgba(196,92,58,.15);color:#e87a5a;border:1px solid rgba(196,92,58,.3)}
 .badge-ai-app{background:rgba(90,158,111,.15);color:#7ec890;border:1px solid rgba(90,158,111,.3)}
+.badge-tech{background:rgba(74,181,168,.15);color:var(--teal);border:1px solid rgba(74,181,168,.3)}
 .badge-pol{background:rgba(74,138,181,.15);color:#7ab8e0;border:1px solid rgba(74,138,181,.3)}
 .badge-others{background:rgba(122,106,90,.12);color:var(--text-dim);border:1px solid var(--border)}
 .section-line{flex:1;height:1px;background:var(--border)}
@@ -126,11 +128,11 @@ h2{font-family:'Playfair Display',serif;font-size:1.5rem;font-style:italic;
 </div>
 <div class="footer">
   <div class="container">
-    <p>Updated daily via GitHub Actions · HN API + Algolia · Gemini gemini-2.0-flash via Gemini CLI</p>
+    <p>Updated daily via GitHub Actions · HN API + Algolia · Gemini via Gemini CLI</p>
   </div>
 </div>
 <script>
-const entries = [{"date": "2026-02-22", "file": "2026-02-22-top.html", "ranking": "top", "story_count": 6}];
+const entries = [{"date": "2026-02-22", "file": "2026-02-22-top.html", "ranking": "top", "story_count": 5}];
 const cal = document.getElementById('cal');
 entries.forEach(e => {
   const d  = new Date(e.date + 'T12:00:00Z');
