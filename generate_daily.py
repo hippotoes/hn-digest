@@ -161,7 +161,7 @@ def call_gemini(prompt: str) -> str:
 # ── Analysis Schema & Prompt ───────────────────────────────────────────────────
 
 ANALYSIS_SCHEMA = """{
-  "topic_category": "AI Fundamentals|AI Applications|Politics|Others",
+  "topic_category": "AI Fundamentals|AI Applications|Tech|Politics|Others",
   "summary_paragraphs": [
     "<paragraph 1 (100-150 words): core story, context, why submitted>",
     "<paragraph 2 (100-150 words): key data, quotes, technical or policy detail>",
@@ -217,7 +217,7 @@ def analyze_story(story: dict, article: str, comments: list) -> dict:
           estimated_agreement = rough number of commenters for this cluster,
           inferred from upvote scores and reply counts in the comments block.
           If comments are sparse, say so and reason from known HN community patterns.
-        • topic_category must be exactly one of the four enum values.
+        • topic_category must be exactly one of the five enum values.
         • Return ONLY the JSON object — nothing else.
 
         JSON schema:
@@ -253,6 +253,7 @@ SENT_CLASS = {
 BADGE_CLASS = {
     "AI Fundamentals": "badge-ai-fund",
     "AI Applications": "badge-ai-app",
+    "Tech":            "badge-tech",
     "Politics":        "badge-pol",
     "Others":          "badge-others",
 }
@@ -260,6 +261,7 @@ BADGE_CLASS = {
 SECTION_ID = {
     "AI Fundamentals": "ai-fund",
     "AI Applications": "ai-app",
+    "Tech":            "tech",
     "Politics":        "politics",
     "Others":          "others",
 }
@@ -267,7 +269,7 @@ SECTION_ID = {
 PAGE_CSS = """:root{--bg:#0f0e0c;--bg2:#181613;--bg3:#211f1b;--surface:#242119;--border:#332f28;
 --amber:#d4a017;--amber-light:#f0bf4c;--amber-dim:rgba(212,160,23,.12);
 --text:#e8e2d6;--text-dim:#9c9285;--text-muted:#5a5446;
---red:#c45c3a;--green:#5a9e6f;--blue:#4a8ab5;--purple:#8a6bbf;}
+--red:#c45c3a;--green:#5a9e6f;--blue:#4a8ab5;--purple:#8a6bbf;--teal:#4ab5a8;}
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:var(--bg);color:var(--text);font-family:'Source Serif 4',Georgia,serif;font-size:16px;line-height:1.7}
 a{color:inherit;text-decoration:none}
@@ -289,6 +291,7 @@ a:hover{opacity:.75}
 .toc a{font-family:'DM Mono',monospace;font-size:11px;padding:4px 10px;border-radius:3px;transition:opacity .15s}
 .toc a.ai-fund{color:#e87a5a;border:1px solid rgba(196,92,58,.3)}
 .toc a.ai-app{color:#7ec890;border:1px solid rgba(90,158,111,.3)}
+.toc a.tech{color:var(--teal);border:1px solid rgba(74,181,168,.3)}
 .toc a.pol{color:#7ab8e0;border:1px solid rgba(74,138,181,.3)}
 .toc a.others{color:var(--text-dim);border:1px solid var(--border)}
 .toc a:hover{opacity:.7}
@@ -297,6 +300,7 @@ a:hover{opacity:.75}
 .section-badge{font-family:'DM Mono',monospace;font-size:10px;font-weight:500;letter-spacing:.25em;text-transform:uppercase;padding:5px 14px;border-radius:3px;white-space:nowrap}
 .badge-ai-fund{background:rgba(196,92,58,.15);color:#e87a5a;border:1px solid rgba(196,92,58,.3)}
 .badge-ai-app{background:rgba(90,158,111,.15);color:#7ec890;border:1px solid rgba(90,158,111,.3)}
+.badge-tech{background:rgba(74,181,168,.15);color:var(--teal);border:1px solid rgba(74,181,168,.3)}
 .badge-pol{background:rgba(74,138,181,.15);color:#7ab8e0;border:1px solid rgba(74,138,181,.3)}
 .badge-others{background:rgba(122,106,90,.12);color:var(--text-dim);border:1px solid var(--border)}
 .section-line{flex:1;height:1px;background:var(--border)}
@@ -421,31 +425,57 @@ def others_table_html(stories: list) -> str:
         pts   = story.get("points", 0)
         ncmts = story.get("num_comments", 0)
         hn_id = story.get("objectID", "")
-        # Use full paragraphs for a ~150 word summary
-        para  = " ".join(a.get("summary_paragraphs", []))
-        short = escape(para[:850] + "…" if len(para) > 850 else para)
-        sent  = escape(a.get("concise_sentiment", "N/A"))
+
+        # Build full summary (~200 words)
+        para = " ".join(a.get("summary_paragraphs", []))
+        # Complete summary logic (try to keep it near 1200 chars for ~200 words)
+        summary_text = escape(para[:1200] + "..." if len(para) > 1200 else para)
+
+        # Build inline sentiment badges
+        sent_html = ""
+        for s in a.get("sentiments", []):
+            stype = s.get("type", "neutral")
+            slabel = escape(s.get("label", ""))
+            sdesc = escape(s.get("description", ""))
+            agree = escape(str(s.get("estimated_agreement", "")))
+            # Color based on sentiment type
+            color = "#5a5446" # default
+            if stype == "positive": color = "#5a9e6f"
+            elif stype == "negative": color = "#c45c3a"
+            elif stype == "mixed": color = "#d4a017"
+            elif stype == "debate": color = "#8a6bbf"
+
+            sent_html += (
+                f'<div style="margin-top:8px; padding:6px 10px; background:rgba(255,255,255,0.03); border-left:2px solid {color}; border-radius:2px;">'
+                f'<span style="font-family:\'DM Mono\',monospace; font-size:10px; color:{color}; text-transform:uppercase; font-weight:600;">{slabel}</span> '
+                f'<span style="font-size:11px; color:var(--text-dim); margin-left:6px;">{sdesc}</span> '
+                f'<span style="font-family:\'DM Mono\',monospace; font-size:10px; color:var(--amber); margin-left:8px;">({agree})</span>'
+                f'</div>'
+            )
+
         rows += (
             f"<tr>"
-            f"<td>"
+            f"<td style='width:100px;'>"
             f"<div class='rank-num' style='margin-bottom:4px'>#{rank}</div>"
             f"<div class='pts-mono' style='margin-bottom:2px'>{pts} pts</div>"
             f"<div class='cmts-mono'><a href='https://news.ycombinator.com/item?id={hn_id}' target='_blank'>{ncmts} c</a></div>"
             f"</td>"
-            f"<td><a href='{url}' target='_blank' style='font-weight:600; color:var(--text);'>{title}</a></td>"
-            f"<td><div style='font-size:12px; line-height:1.4;'>{short}</div></td>"
-            f"<td><div style='font-size:11px; font-style:italic; color:var(--amber-light);'>{sent}</div></td>"
+            f"<td>"
+            f"<div style='margin-bottom:8px;'><a href='{url}' target='_blank' style='font-family:\"Playfair Display\",serif; font-size:1.1rem; font-weight:700; color:var(--text);'>{title}</a></div>"
+            f"<div style='font-size:14px; line-height:1.5; color:#c0b8a8;'>{summary_text}</div>"
+            f"{sent_html}"
+            f"</td>"
             f"</tr>"
         )
     return f"""
 <div class="story-card">
   <div class="story-body" style="padding:18px 26px">
     <p style="font-size:14px;color:var(--text-dim);margin-bottom:18px">
-      Remaining stories — detailed reference table.
+      Remaining stories — comprehensive digest table.
     </p>
     <div class="others-table-wrap">
       <table class="others-table">
-        <thead><tr><th>Stats</th><th>Story</th><th>Detailed Summary</th><th>Community Sentiment</th></tr></thead>
+        <thead><tr><th>Stats</th><th>Digest</th></tr></thead>
         <tbody>{rows}</tbody>
       </table>
     </div>
@@ -487,7 +517,7 @@ def update_manifest(target: date, filename: str, ranking: str, n: int) -> dict:
 
 def build_page(target: date, stories: list, ranking: str, manifest: dict) -> str:
     cats: dict[str, list] = {
-        "AI Fundamentals": [], "AI Applications": [], "Politics": [], "Others": []
+        "AI Fundamentals": [], "AI Applications": [], "Tech": [], "Politics": [], "Others": []
     }
     for i, s in enumerate(stories):
         cat = s.get("analysis", {}).get("topic_category", "Others")
@@ -564,6 +594,7 @@ def build_page(target: date, stories: list, ranking: str, manifest: dict) -> str
     <div class="toc">
       <a href="#ai-fund" class="ai-fund">AI Fundamentals</a>
       <a href="#ai-app"  class="ai-app">AI Applications</a>
+      <a href="#tech"    class="tech">Tech</a>
       <a href="#politics" class="pol">Politics</a>
       <a href="#others"  class="others">Others</a>
     </div>
