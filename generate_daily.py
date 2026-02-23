@@ -22,7 +22,7 @@ from html import escape
 
 # ── Model & Paths ─────────────────────────────────────────────────────────────
 
-GEMINI_MODEL = "gemini-2.0-flash"     # Confirmed working with gemini CLI
+GEMINI_MODEL = "gemini-3-flash-preview"     # Latest preview model confirmed working
 
 OUTPUT_DIR = Path("site")
 OUTPUT_DIR.mkdir(exist_ok=True)
