@@ -15,7 +15,7 @@ on:
       ranking:
         description: "Ranking method"
         required: false
-        default: "best"
+        default: "top"
         type: choice
         options: [best, top, new, ask, show]
       stories:
@@ -68,7 +68,7 @@ jobs:
                    || date -u -v-1d +%Y-%m-%d)   # macOS fallback (runners are Linux)
           fi
           RANKING="${{ github.event.inputs.ranking }}"
-          if [ -z "$RANKING" ]; then RANKING="best"; fi
+          if [ -z "$RANKING" ]; then RANKING="top"; fi
           STORIES="${{ github.event.inputs.stories }}"
           if [ -z "$STORIES" ]; then STORIES="20"; fi
           echo "date=$DATE"     >> $GITHUB_OUTPUT

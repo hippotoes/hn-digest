@@ -22,7 +22,7 @@ from html import escape
 
 # ── Model & Paths ─────────────────────────────────────────────────────────────
 
-GEMINI_MODEL = "gemini-3-flash-preview"     # Latest preview model confirmed working
+GEMINI_MODEL = "gemini-2.0-flash"     # Confirmed working with gemini CLI, high quota
 
 OUTPUT_DIR = Path("site")
 OUTPUT_DIR.mkdir(exist_ok=True)
@@ -724,7 +724,7 @@ def run(target: date, ranking: str, n_stories: int):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--date",    default=None)
-    ap.add_argument("--ranking", default="best", choices=list(RANKING_TAGS.keys()))
+    ap.add_argument("--ranking", default="top", choices=list(RANKING_TAGS.keys()))
     ap.add_argument("--stories", default=20, type=int)
     args = ap.parse_args()
 
