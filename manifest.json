@@ -4,31 +4,10 @@
       "date": "2026-02-22",
       "file": "2026-02-22-top.html",
       "ranking": "top",
-      "story_count": 14
-    },
-    {
-      "date": "2026-02-22",
-      "file": "2026-02-22.html",
-      "ranking": "best",
-      "story_count": 14
-    },
-    {
-      "date": "2026-02-21",
-      "file": "2026-02-21.html",
-      "ranking": "best",
-      "story_count": 11
-    },
-    {
-      "date": "2026-02-21",
-      "file": "2026-02-21-top.html",
-      "ranking": "top",
-      "story_count": 11
+      "story_count": 6
     }
   ],
   "files": [
-    "2026-02-22-top.html",
-    "2026-02-22.html",
-    "2026-02-21.html",
-    "2026-02-21-top.html"
+    "2026-02-22-top.html"
   ]
 }
