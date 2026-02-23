@@ -427,11 +427,12 @@ def others_table_html(stories: list) -> str:
         sent  = escape(a.get("concise_sentiment", "N/A"))
         rows += (
             f"<tr>"
-            f"<td><span class='rank-num'>#{rank}</span></td>"
-            f"<td><a href='{url}' target='_blank'>{title}</a></td>"
-            f"<td><span class='pts-mono'>{pts}</span></td>"
-            f"<td><a href='https://news.ycombinator.com/item?id={hn_id}' target='_blank'>"
-            f"<span class='cmts-mono'>{ncmts}</span></a></td>"
+            f"<td>"
+            f"<div class='rank-num' style='margin-bottom:4px'>#{rank}</div>"
+            f"<div class='pts-mono' style='margin-bottom:2px'>{pts} pts</div>"
+            f"<div class='cmts-mono'><a href='https://news.ycombinator.com/item?id={hn_id}' target='_blank'>{ncmts} c</a></div>"
+            f"</td>"
+            f"<td><a href='{url}' target='_blank' style='font-weight:600; color:var(--text);'>{title}</a></td>"
             f"<td><div style='font-size:12px; line-height:1.4;'>{short}</div></td>"
             f"<td><div style='font-size:11px; font-style:italic; color:var(--amber-light);'>{sent}</div></td>"
             f"</tr>"
@@ -444,7 +445,7 @@ def others_table_html(stories: list) -> str:
     </p>
     <div class="others-table-wrap">
       <table class="others-table">
-        <thead><tr><th>#</th><th>Story</th><th>Pts</th><th>Cmts</th><th>Detailed Summary</th><th>Community Sentiment</th></tr></thead>
+        <thead><tr><th>Stats</th><th>Story</th><th>Detailed Summary</th><th>Community Sentiment</th></tr></thead>
         <tbody>{rows}</tbody>
       </table>
     </div>
