@@ -23,7 +23,9 @@ from concurrent.futures import ThreadPoolExecutor
 
 # ── Model & Paths ─────────────────────────────────────────────────────────────
 
-GEMINI_MODEL = "gemini-2.0-flash"     # Confirmed working with gemini CLI, high quota
+# Fallback chain for Free Tier daily quota management
+MODEL_CHAIN = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-flash-8b"]
+CURRENT_MODEL_INDEX = 0
 
 OUTPUT_DIR = Path("site")
 OUTPUT_DIR.mkdir(exist_ok=True)
@@ -139,37 +141,50 @@ def fetch_article(url: str, max_chars: int = 20_000) -> str:
 
 def call_gemini(prompt: str) -> str:
     """
-    Invoke `gemini` CLI in non-interactive mode.
-    The GEMINI_API_KEY env var is picked up automatically.
-
-    Uses --output-format json so the response field contains Gemini's response.
-    Falls back to raw stdout if JSON parsing fails.
+    Invoke `gemini` CLI with automatic fallback if daily quota is exhausted.
     """
-    proc = subprocess.run(
-        [
-            "gemini",
-            "--model",         GEMINI_MODEL,
-            "--output-format", "json",
-            "-p",              prompt,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=180,
-    )
+    global CURRENT_MODEL_INDEX
+    
+    while CURRENT_MODEL_INDEX < len(MODEL_CHAIN):
+        model = MODEL_CHAIN[CURRENT_MODEL_INDEX]
+        proc = subprocess.run(
+            [
+                "gemini",
+                "--model",         model,
+                "--output-format", "json",
+                "-p",              prompt,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
 
-    if proc.returncode != 0:
-        stderr = proc.stderr.strip()[:400]
-        raise RuntimeError(f"gemini CLI exited {proc.returncode}: {stderr}")
+        if proc.returncode == 0:
+            # Success! Parse and return.
+            try:
+                outer = json.loads(proc.stdout)
+                if isinstance(outer, dict) and "response" in outer:
+                    return outer["response"].strip()
+                return proc.stdout.strip()
+            except:
+                return proc.stdout.strip()
 
-    # Gemini CLI wraps the response: {"response": "...", "session_id": "...", ...}
-    try:
-        outer = json.loads(proc.stdout)
-        if isinstance(outer, dict) and "response" in outer:
-            return outer["response"].strip()
-    except (json.JSONDecodeError, TypeError):
-        pass
+        # Handle Errors
+        stderr = proc.stderr.lower()
+        if "quota" in stderr or "exhausted" in stderr:
+            print(f"         ⚠ Quota exhausted for {model}. Falling back...")
+            CURRENT_MODEL_INDEX += 1
+            if CURRENT_MODEL_INDEX < len(MODEL_CHAIN):
+                time.sleep(2) # brief pause before fallback retry
+                continue
+            else:
+                raise RuntimeError("All models in fallback chain exhausted their daily quota.")
+        else:
+            # Some other error (not quota)
+            err_msg = proc.stderr.strip()[:400]
+            raise RuntimeError(f"gemini CLI ({model}) exited {proc.returncode}: {err_msg}")
 
-    return proc.stdout.strip()
+    raise RuntimeError("Fallback chain exhausted.")
 
 
 # ── Analysis Schema & Prompt ───────────────────────────────────────────────────
@@ -622,7 +637,7 @@ def build_page(target: date, stories: list, ranking: str, manifest: dict) -> str
 
 <div class="footer">
   <div class="container">
-    <p>Data: HN Algolia Search + Firebase APIs · Summaries: Gemini {GEMINI_MODEL} via Gemini CLI</p>
+    <p>Data: HN Algolia Search + Firebase APIs · Summaries: Gemini via Gemini CLI</p>
     <p style="margin-top:6px;font-size:10px">
       Sentiment analysis uses real HN comment threads fetched at generation time.
       Agreement estimates are inferred from comment upvote distribution and reply volume.
@@ -695,7 +710,7 @@ h2{{font-family:'Playfair Display',serif;font-size:1.5rem;font-style:italic;
 </div>
 <div class="footer">
   <div class="container">
-    <p>Updated daily via GitHub Actions · HN API + Algolia · Gemini {GEMINI_MODEL} via Gemini CLI</p>
+    <p>Updated daily via GitHub Actions · HN API + Algolia · Gemini via Gemini CLI</p>
   </div>
 </div>
 <script>
