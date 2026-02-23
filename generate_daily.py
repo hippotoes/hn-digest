@@ -19,6 +19,7 @@ import os, sys, re, json, time, argparse, subprocess, textwrap, requests
 from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
 from html import escape
+from concurrent.futures import ThreadPoolExecutor
 
 # ── Model & Paths ─────────────────────────────────────────────────────────────
 
@@ -79,29 +80,39 @@ def get_hn_item(item_id: int) -> dict:
 
 
 def get_top_comments(item_id: int, max_top: int = 30, max_replies: int = 3) -> list:
-    """Return top-level comments + shallow replies as plain dicts."""
+    """Return top-level comments + shallow replies using parallel fetching."""
     item = get_hn_item(item_id)
     kids = (item.get("kids") or [])[:max_top]
-    result = []
-    for kid_id in kids:
+    
+    def fetch_full_comment(kid_id):
         c = get_hn_item(kid_id)
         if not c or c.get("dead") or c.get("deleted") or not c.get("text"):
-            continue
+            return None
+        
         entry = {
             "author":  c.get("by", ""),
             "score":   c.get("score", 0),
             "text":    re.sub(r"<[^>]+>", " ", c.get("text", ""))[:600],
             "replies": [],
         }
-        for r_id in (c.get("kids") or [])[:max_replies]:
-            rep = get_hn_item(r_id)
-            if rep and not rep.get("dead") and rep.get("text"):
-                entry["replies"].append({
-                    "author": rep.get("by", ""),
-                    "text":   re.sub(r"<[^>]+>", " ", rep.get("text", ""))[:300],
-                })
-        result.append(entry)
-    return result
+        
+        # Parallel fetch replies
+        r_ids = (c.get("kids") or [])[:max_replies]
+        if r_ids:
+            with ThreadPoolExecutor(max_workers=len(r_ids)) as ex:
+                replies = list(ex.map(get_hn_item, r_ids))
+                for rep in replies:
+                    if rep and not rep.get("dead") and rep.get("text"):
+                        entry["replies"].append({
+                            "author": rep.get("by", ""),
+                            "text":   re.sub(r"<[^>]+>", " ", rep.get("text", ""))[:300],
+                        })
+        return entry
+
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        results = list(executor.map(fetch_full_comment, kids))
+    
+    return [r for r in results if r]
 
 
 def fetch_article(url: str, max_chars: int = 10_000) -> str:
@@ -723,11 +734,20 @@ def run(target: date, ranking: str, n_stories: int):
         title = story.get("title", "")[:65]
         print(f"  [{i+1:02}/{len(stories)}] {title}")
         hn_id    = story.get("objectID", "")
+        
+        t0 = time.time()
         article  = fetch_article(story.get("url", ""))
+        t_article = time.time() - t0
+        
+        t0 = time.time()
         comments = get_top_comments(int(hn_id)) if hn_id else []
+        t_comments = time.time() - t0
 
+        t0 = time.time()
         try:
             story["analysis"] = analyze_story(story, article, comments)
+            t_ai = time.time() - t0
+            print(f"         ⏱  Scrape: {t_article:.1f}s | HN: {t_comments:.1f}s | AI: {t_ai:.1f}s")
         except Exception as e:
             print(f"         ⚠ Analysis error: {e}")
             story["analysis"] = {
@@ -735,7 +755,7 @@ def run(target: date, ranking: str, n_stories: int):
                 "summary_paragraphs": [story.get("title", ""), "Analysis unavailable."],
                 "highlight": "", "key_points": [], "sentiments": [],
             }
-        time.sleep(5.0)   # stay within 15 RPM Free Tier limit
+        time.sleep(2.0)   # stay within 15 RPM Free Tier limit
 
     suffix   = f"-{ranking}" if ranking != "best" else ""
     filename = f"{target.isoformat()}{suffix}.html"
