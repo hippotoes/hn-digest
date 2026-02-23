@@ -107,11 +107,14 @@ def get_top_comments(item_id: int, max_top: int = 30, max_replies: int = 3) -> l
 def fetch_article(url: str, max_chars: int = 10_000) -> str:
     if not url:
         return "[No article URL — likely an Ask/Show HN post]"
+    if url.lower().endswith(".pdf"):
+        return "[Article is a PDF — scraping not supported for binary files]"
     try:
         headers = {"User-Agent": "Mozilla/5.0 (compatible; HNDigest/1.0)"}
         r = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
         r.raise_for_status()
-        text = r.text
+        # Strip null bytes and non-printable characters that break JSON/CLI
+        text = "".join(ch for ch in r.text if ch.isprintable() or ch in "\n\r\t")
         text = re.sub(r"<script[^>]*>.*?</script>", " ", text, flags=re.DOTALL | re.I)
         text = re.sub(r"<style[^>]*>.*?</style>",   " ", text, flags=re.DOTALL | re.I)
         text = re.sub(r"<[^>]+>", " ", text)
