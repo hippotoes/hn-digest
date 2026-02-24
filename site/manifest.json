@@ -1,12 +1,6 @@
 {
   "entries": [
     {
-      "date": "2026-02-23",
-      "file": "2026-02-23-top.html",
-      "ranking": "top",
-      "story_count": 2
-    },
-    {
       "date": "2026-02-21",
       "file": "2026-02-21-top.html",
       "ranking": "top",
@@ -26,7 +20,6 @@
     }
   ],
   "files": [
-    "2026-02-23-top.html",
     "2026-02-21-top.html",
     "2026-02-20-top.html",
     "2026-02-19-top.html"

@@ -307,6 +307,7 @@ body{background:var(--bg);color:var(--text);font-family:'Source Serif 4',Georgia
 a{color:inherit;text-decoration:none}
 a:hover{opacity:.75}
 .masthead{border-bottom:1px solid var(--border);padding:28px 0 20px;text-align:center;background:var(--bg2);position:relative;overflow:hidden}
+.masthead::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 80% 60% at 50% 0%,rgba(212,160,23,.07) 0%,transparent 70%);pointer-events:none}
 .masthead-sub{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.3em;color:var(--amber);text-transform:uppercase;margin-bottom:10px}
 .masthead h1{font-family:'Playfair Display',serif;font-size:clamp(2rem,5vw,3.8rem);font-weight:900;letter-spacing:-.02em;color:var(--text);line-height:1}
 .masthead h1 span{color:var(--amber)}
@@ -545,20 +546,24 @@ def save_manifest(m: dict):
 
 def update_manifest(target: date, filename: str, ranking: str, n: int, retention: int = 30) -> dict:
     m = load_manifest()
-    date_iso = target.isoformat()
-    # Remove existing entry for same day/rank
-    m["entries"] = [e for e in m["entries"] if not (e["date"] == date_iso and e["ranking"] == ranking)]
-    # Insert new entry
-    m["entries"].insert(0, {
-        "date": date_iso, "file": filename,
-        "ranking": ranking, "story_count": n,
-    })
+    
+    if target and filename:
+        date_iso = target.isoformat()
+        # Remove existing entry for same day/rank
+        m["entries"] = [e for e in m["entries"] if not (e["date"] == date_iso and e["ranking"] == ranking)]
+        # Insert new entry
+        m["entries"].insert(0, {
+            "date": date_iso, "file": filename,
+            "ranking": ranking, "story_count": n,
+        })
+    
     m["entries"].sort(key=lambda e: e["date"], reverse=True)
     
     # Enforce retention
     if retention > 0 and len(m["entries"]) > retention:
+        to_keep = m["entries"][:retention]
         to_delete = m["entries"][retention:]
-        m["entries"] = m["entries"][:retention]
+        m["entries"] = to_keep
         # Clean up physical files
         for entry in to_delete:
             fpath = OUTPUT_DIR / entry["file"]
@@ -704,60 +709,70 @@ def run(target: date, ranking: str, n_stories: int, retention: int = 30):
 
     print("  Fetching story list...")
     stories = get_stories_for_date(target, n=n_stories, ranking=ranking)
-    if not stories:
-        print("  ⚠ No stories found - skipping.")
-        return
-
-    print(f"  Found {len(stories)} stories. Starting analysis...")
-    for i, story in enumerate(stories):
-        title = story.get("title", "")[:65]
-        print(f"  [{i+1:02}/{len(stories)}] {title}")
-        hn_id    = story.get("objectID", "")
-        
-        t0 = time.time()
-        article  = fetch_article(story.get("url", ""))
-        t_article = time.time() - t0
-        
-        t0 = time.time()
-        comments = get_top_comments(int(hn_id)) if hn_id else []
-        t_comments = time.time() - t0
-
-        t0 = time.time()
-        try:
-            story["analysis"] = analyze_story(story, article, comments)
-            t_ai = time.time() - t0
-            print(f"         ⏱  Scrape: {t_article:.1f}s | HN: {t_comments:.1f}s | AI: {t_ai:.1f}s")
-        except Exception as e:
-            print(f"         ⚠ Analysis error: {e}")
-            story["analysis"] = {
-                "topic_category":    "Others",
-                "summary_paragraphs": [story.get("title", ""), "Analysis unavailable."],
-                "highlight": "", "key_points": [], "sentiments": [],
-            }
-        time.sleep(2.0)   # stay within 15 RPM Free Tier limit
-
-    suffix   = f"-{ranking}" if ranking != "best" else ""
-    filename = f"{target.isoformat()}{suffix}.html"
-    manifest = load_manifest()
     
-    # Add current date to date selector before building the page
-    tmp_manifest = dict(manifest)
-    tmp_manifest["entries"] = (
-        [{"date": target.isoformat(), "file": filename,
-          "ranking": ranking, "story_count": len(stories)}]
-        + [e for e in manifest.get("entries", [])
-           if not (e["date"] == target.isoformat() and e["ranking"] == ranking)]
-    )
-    tmp_manifest["entries"].sort(key=lambda e: e["date"], reverse=True)
-    tmp_manifest["files"] = [e["file"] for e in tmp_manifest["entries"]]
+    filename = None
+    if stories:
+        print(f"  Found {len(stories)} stories. Starting analysis...")
+        for i, story in enumerate(stories):
+            title = story.get("title", "")[:65]
+            print(f"  [{i+1:02}/{len(stories)}] {title}")
+            hn_id    = story.get("objectID", "")
+            
+            t0 = time.time()
+            article  = fetch_article(story.get("url", ""))
+            t_article = time.time() - t0
+            
+            t0 = time.time()
+            comments = get_top_comments(int(hn_id)) if hn_id else []
+            t_comments = time.time() - t0
 
-    html = build_page(target, stories, ranking, tmp_manifest)
-    (OUTPUT_DIR / filename).write_text(html, encoding="utf-8")
-    print(f"  ✔ {OUTPUT_DIR / filename}")
+            t0 = time.time()
+            try:
+                story["analysis"] = analyze_story(story, article, comments)
+                t_ai = time.time() - t0
+                print(f"         ⏱  Scrape: {t_article:.1f}s | HN: {t_comments:.1f}s | AI: {t_ai:.1f}s")
+            except Exception as e:
+                print(f"         ⚠ Analysis error: {e}")
+                story["analysis"] = {
+                    "topic_category":    "Others",
+                    "summary_paragraphs": [story.get("title", ""), "Analysis unavailable."],
+                    "highlight": "", "key_points": [], "sentiments": [],
+                }
+            time.sleep(2.0)   # stay within 15 RPM Free Tier limit
 
-    manifest = update_manifest(target, filename, ranking, len(stories), retention=retention)
-    (OUTPUT_DIR / "index.html").write_text(build_index(manifest, stories, target, ranking), encoding="utf-8")
-    print("  ✔ index.html + manifest.json")
+        suffix   = f"-{ranking}" if ranking != "best" else ""
+        filename = f"{target.isoformat()}{suffix}.html"
+        
+        # Build the daily page using a temporary manifest including today
+        m = load_manifest()
+        tmp_entries = [{"date": target.isoformat(), "file": filename, "ranking": ranking, "story_count": len(stories)}]
+        for e in m["entries"]:
+            if not (e["date"] == target.isoformat() and e["ranking"] == ranking):
+                tmp_entries.append(e)
+        tmp_entries.sort(key=lambda x: x["date"], reverse=True)
+        
+        html = build_page(target, stories, ranking, {"entries": tmp_entries})
+        (OUTPUT_DIR / filename).write_text(html, encoding="utf-8")
+        print(f"  ✔ {OUTPUT_DIR / filename}")
+    else:
+        print("  ⚠ No stories found for today.")
+
+    # Always update manifest (to enforce retention) and rebuild index
+    manifest = update_manifest(target if stories else None, filename, ranking, len(stories), retention=retention)
+    
+    # Decide what stories to show on the index page
+    if stories:
+        index_stories, index_target, index_ranking = stories, target, ranking
+    elif manifest["entries"]:
+        latest = manifest["entries"][0]
+        # Since we can't re-analyze without re-running, if today is empty, we just show today's date
+        # but with empty stories. The user can jump back using history.
+        index_stories, index_target, index_ranking = [], target, ranking
+    else:
+        index_stories, index_target, index_ranking = [], target, ranking
+
+    (OUTPUT_DIR / "index.html").write_text(build_index(manifest, index_stories, index_target, index_ranking), encoding="utf-8")
+    print("  ✔ index.html + manifest.json (Retention applied)")
 
 
 def main():
