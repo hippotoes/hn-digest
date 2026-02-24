@@ -272,7 +272,7 @@ def analyze_story(story: dict, article: str, comments: list) -> dict:
         raise ValueError(f"Could not parse JSON from AI response:\n{raw[:300]}")
 
 
-# ── HTML Constants ─────────────────────────────────────────────────────────────
+# ── Styling & Constants ────────────────────────────────────────────────────────
 
 SENT_CLASS = {
     "positive": "sent-positive",
@@ -313,13 +313,17 @@ a:hover{opacity:.75}
 .masthead h1 span{color:var(--amber)}
 .masthead-date{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.15em;color:var(--text-dim);margin-top:10px}
 .masthead-rule{width:60px;height:2px;background:var(--amber);margin:14px auto 0}
+.nav-controls{background:var(--bg2); border-bottom:1px solid var(--border); padding:10px 0; position:sticky; top:0; z-index:1000; box-shadow:0 4px 20px rgba(0,0,0,0.3);}
+.nav-inner{max-width:1100px; margin:0 auto; padding:0 24px; display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap;}
+.ctrl-group{display:flex; align-items:center; gap:8px;}
+.ctrl-label{font-family:'DM Mono',monospace; font-size:9px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.1em;}
 .container{max-width:1100px;margin:0 auto;padding:0 24px}
 .section-header{display:flex;align-items:center;gap:16px;margin:48px 0 24px}
 .section-badge{font-family:'DM Mono',monospace;font-size:10px;font-weight:500;letter-spacing:.25em;text-transform:uppercase;padding:5px 14px;border-radius:3px;white-space:nowrap}
-.badge-ai-fund{background:rgba(196,92,58,.15);color:#e87a5a;border:1px solid rgba(196,92,58,.3)}
-.badge-ai-app{background:rgba(90,158,111,.15);color:#7ec890;border:1px solid rgba(90,158,111,.3)}
-.badge-tech{background:rgba(74,181,168,.15);color:var(--teal);border:1px solid rgba(74,181,168,.3)}
-.badge-pol{background:rgba(74,138,181,.15);color:#7ab8e0;border:1px solid rgba(74,138,181,.3)}
+.badge-ai-fund{background:rgba(196,92,58,.15);color:#e87a5a;border:1px solid rgba(196,92,58,0.3)}
+.badge-ai-app{background:rgba(90,158,111,.15);color:#7ec890;border:1px solid rgba(90,158,111,0.3)}
+.badge-tech{background:rgba(74,181,168,.15);color:var(--teal);border:1px solid rgba(74,181,168,0.3)}
+.badge-pol{background:rgba(74,138,181,.15);color:#7ab8e0;border:1px solid rgba(74,138,181,0.3)}
 .badge-others{background:rgba(122,106,90,.12);color:var(--text-dim);border:1px solid var(--border)}
 .section-line{flex:1;height:1px;background:var(--border)}
 .story-card{background:var(--surface);border:1px solid var(--border);border-radius:6px;margin-bottom:28px;overflow:hidden;transition:border-color .2s}
@@ -371,6 +375,7 @@ a:hover{opacity:.75}
 .cmts-mono{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-dim);white-space:nowrap}
 .footer{border-top:1px solid var(--border);margin-top:64px;padding:28px 0;text-align:center}
 .footer p{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.1em;color:var(--text-muted)}
+.latest-label{font-family:'DM Mono',monospace; font-size:12px; color:var(--amber); text-transform:uppercase; letter-spacing:0.2em; margin-bottom:16px;}
 @media(max-width:640px){.nav-inner{gap:8px}}"""
 
 
@@ -533,6 +538,44 @@ def get_navbar_html(manifest: dict, current_file: str = "") -> str:
   </div>
 </div>"""
 
+def wrap_with_layout(title: str, date_str: str, subtitle: str, content: str, navbar_html: str, manifest_json: str = "{}") -> str:
+    """Master layout wrapper for all pages."""
+    model_str = CONFIG["deepseek_model"] if CONFIG["primary_provider"] == "deepseek" else CONFIG["gemini_model"]
+    provider_str = CONFIG["primary_provider"].capitalize()
+    
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>{title}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900;1,700&family=Source+Serif+4:ital,wght@0,300;0,400;0,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>{PAGE_CSS}</style>
+</head>
+<body>
+<div class="masthead">
+  <div class="masthead-sub">Intelligence Briefing</div>
+  <h1>Hacker <span>News</span></h1>
+  <div class="masthead-date">{date_str} - {subtitle}</div>
+  <div class="masthead-rule"></div>
+</div>
+{navbar_html}
+<div class="container">{content}</div>
+<div class="footer">
+  <div class="container">
+    <p>Data: HN Algolia Search + Firebase APIs - Summaries: {model_str} via {provider_str}</p>
+    <p style="margin-top:6px;font-size:10px">
+      Sentiment analysis uses real HN comment threads fetched at generation time.
+      Agreement estimates are inferred from comment upvote distribution and reply volume.
+    </p>
+  </div>
+</div>
+<script>const MANIFEST = {manifest_json};</script>
+</body>
+</html>"""
+
+
 # ── Manifest & Retention ──────────────────────────────────────────────────────
 
 def load_manifest() -> dict:
@@ -547,45 +590,35 @@ def save_manifest(m: dict):
 def update_manifest(target: date, filename: str, ranking: str, n: int, retention: int = 30) -> dict:
     m = load_manifest()
     
-    # 1. Identify all physical report files (exclude index.html)
+    # Identify all physical report files (exclude index.html)
     existing_files = {f.name for f in OUTPUT_DIR.glob("*.html") if f.name != "index.html"}
     
-    # 2. Sync manifest with disk: Keep entries only if the file exists
+    # Sync manifest with disk
     current_entries = [e for e in m["entries"] if e["file"] in existing_files]
     
-    # 3. Add/Update the current run's entry
     if target and filename:
         date_iso = target.isoformat()
-        # Remove existing entry for same day/rank to avoid duplicates
         current_entries = [e for e in current_entries if not (e["date"] == date_iso and e["ranking"] == ranking)]
         current_entries.insert(0, {
             "date": date_iso, "file": filename,
             "ranking": ranking, "story_count": n,
         })
     
-    # 4. Sort by date (descending)
     current_entries.sort(key=lambda e: e["date"], reverse=True)
     
-    # 5. Enforce retention: Prune manifest and delete physical files
     if retention > 0 and len(current_entries) > retention:
         to_keep = current_entries[:retention]
         to_delete = current_entries[retention:]
-        
-        # Clean up physical files for entries being removed
         for entry in to_delete:
             fpath = OUTPUT_DIR / entry["file"]
-            if fpath.exists():
-                fpath.unlink()
-                print(f"  Cleanup: Deleted {entry['file']} (retention limit)")
+            if fpath.exists(): fpath.unlink()
         
-        # Also clean up any orphan HTML files not tracked in the 'to_keep' list
+        # Also clean up orphan HTML files
         keep_filenames = {e["file"] for e in to_keep}
         for fname in existing_files:
             if fname not in keep_filenames and (not filename or fname != filename):
                 fpath = OUTPUT_DIR / fname
-                if fpath.exists():
-                    fpath.unlink()
-                    print(f"  Cleanup: Deleted orphan file {fname}")
+                if fpath.exists(): fpath.unlink()
         
         current_entries = to_keep
 
@@ -618,51 +651,18 @@ def build_page(target: date, stories: list, ranking: str, manifest: dict) -> str
     date_str  = target.strftime("%A, %B %d, %Y").upper()
     filename  = f"{date_iso}{'-' + ranking if ranking != 'best' else ''}.html"
     navbar_html = get_navbar_html(manifest, current_file=filename)
-    manifest_json = json.dumps(manifest)
-
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>HN Digest - {date_iso}</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900;1,700&family=Source+Serif+4:ital,wght@0,300;0,400;0,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
-<style>
-{PAGE_CSS}
-.nav-controls{{background:var(--bg2); border-bottom:1px solid var(--border); padding:10px 0; position:sticky; top:0; z-index:1000; box-shadow:0 4px 20px rgba(0,0,0,0.3);}}
-.nav-inner{{max-width:1100px; margin:0 auto; padding:0 24px; display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap;}}
-.ctrl-group{{display:flex; align-items:center; gap:8px;}}
-.ctrl-label{{font-family:'DM Mono',monospace; font-size:9px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.1em;}}
-</style>
-</head>
-<body>
-<div class="masthead">
-  <div class="masthead-sub">Daily Intelligence Brief</div>
-  <h1>Hacker <span>News</span></h1>
-  <div class="masthead-date">{date_str} - TOP {len(stories)} - {ranking.upper()}</div>
-  <div class="masthead-rule"></div>
-</div>
-{navbar_html}
-<div class="container">{sections}</div>
-<div class="footer">
-  <div class="container">
-    <p>Data: HN Algolia Search + Firebase APIs - Summaries: {CONFIG["deepseek_model"] if CONFIG["primary_provider"] == "deepseek" else CONFIG["gemini_model"]} via {CONFIG["primary_provider"].capitalize()}</p>
-    <p style="margin-top:6px;font-size:10px">
-      Sentiment analysis uses real HN comment threads fetched at generation time.
-      Agreement estimates are inferred from comment upvote distribution and reply volume.
-    </p>
-  </div>
-</div>
-<script>const MANIFEST = {manifest_json};</script>
-</body>
-</html>"""
+    
+    return wrap_with_layout(
+        title=f"HN Digest - {date_iso}",
+        date_str=date_str,
+        subtitle=f"TOP {len(stories)} - {ranking.upper()}",
+        content=sections,
+        navbar_html=navbar_html,
+        manifest_json=json.dumps(manifest)
+    )
 
 
 def build_index(manifest: dict, latest_stories: list, latest_target: date, latest_ranking: str) -> str:
-    model_str = CONFIG["deepseek_model"] if CONFIG["primary_provider"] == "deepseek" else CONFIG["gemini_model"]
-    provider_str = CONFIG["primary_provider"].capitalize()
-    
     cats: dict[str, list] = {
         "AI Fundamentals": [], "AI Applications": [], "Tech": [], "Politics": [], "Others": []
     }
@@ -683,42 +683,15 @@ def build_index(manifest: dict, latest_stories: list, latest_target: date, lates
     date_str = latest_target.strftime("%A, %B %d, %Y").upper()
     navbar_html = get_navbar_html(manifest, current_file="index.html")
 
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>HN Daily Digest</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900&family=Source+Serif+4:ital,wght@0,300;0,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
-<style>
-{PAGE_CSS}
-.nav-controls{{background:var(--bg2); border-bottom:1px solid var(--border); padding:10px 0; position:sticky; top:0; z-index:1000; box-shadow:0 4px 20px rgba(0,0,0,0.3);}}
-.nav-inner{{max-width:1100px; margin:0 auto; padding:0 24px; display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap;}}
-.ctrl-group{{display:flex; align-items:center; gap:8px;}}
-.ctrl-label{{font-family:'DM Mono',monospace; font-size:9px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.1em;}}
-.latest-label{{font-family:'DM Mono',monospace; font-size:12px; color:var(--amber); text-transform:uppercase; letter-spacing:0.2em; margin-bottom:16px;}}
-</style>
-</head>
-<body>
-<div class="masthead">
-  <div class="masthead-sub">Intelligence Briefing</div>
-  <h1>Hacker <span>News</span></h1>
-  <div class="masthead-date">{date_str} - TOP {len(latest_stories)} - {latest_ranking.upper()}</div>
-  <div class="masthead-rule"></div>
-</div>
-{navbar_html}
-<div class="container">
-  <div style="margin-top:48px; text-align:center;"><div class="latest-label">Latest Briefing</div></div>
-  {latest_sections}
-</div>
-<div class="footer">
-  <div class="container">
-    <p>Updated daily via GitHub Actions - {model_str} via {provider_str}</p>
-  </div>
-</div>
-</body>
-</html>"""
+    content = f'<div style="margin-top:48px; text-align:center;"><div class="latest-label">Latest Briefing</div></div>{latest_sections}'
+    
+    return wrap_with_layout(
+        title="HN Daily Digest",
+        date_str=date_str,
+        subtitle=f"TOP {len(latest_stories)} - {latest_ranking.upper()}",
+        content=content,
+        navbar_html=navbar_html
+    )
 
 
 # ── Entry Point ───────────────────────────────────────────────────────────────
@@ -762,7 +735,7 @@ def run(target: date, ranking: str, n_stories: int, retention: int = 30):
         suffix   = f"-{ranking}" if ranking != "best" else ""
         filename = f"{target.isoformat()}{suffix}.html"
         
-        # Build the daily page using a temporary manifest including today
+        # Build the daily page using current manifest + this run
         m = load_manifest()
         tmp_entries = [{"date": target.isoformat(), "file": filename, "ranking": ranking, "story_count": len(stories)}]
         for e in m["entries"]:
@@ -780,15 +753,7 @@ def run(target: date, ranking: str, n_stories: int, retention: int = 30):
     manifest = update_manifest(target if stories else None, filename, ranking, len(stories), retention=retention)
     
     # Decide what stories to show on the index page
-    if stories:
-        index_stories, index_target, index_ranking = stories, target, ranking
-    elif manifest["entries"]:
-        latest = manifest["entries"][0]
-        # Since we can't re-analyze without re-running, if today is empty, we just show today's date
-        # but with empty stories. The user can jump back using history.
-        index_stories, index_target, index_ranking = [], target, ranking
-    else:
-        index_stories, index_target, index_ranking = [], target, ranking
+    index_stories, index_target, index_ranking = (stories, target, ranking) if stories else ([], target, ranking)
 
     (OUTPUT_DIR / "index.html").write_text(build_index(manifest, index_stories, index_target, index_ranking), encoding="utf-8")
     print("  ✔ index.html + manifest.json (Retention applied)")
