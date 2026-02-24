@@ -94,7 +94,20 @@ jobs:
             --stories "${{ steps.params.outputs.stories }}" \
             --retention "${{ steps.params.outputs.retention }}"
 
-      # ── 6. Deploy to GitHub Pages ────────────────────────────────────────
+      # ── 6. Commit Manifest ───────────────────────────────────────────────
+      - name: Commit manifest.json
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add site/manifest.json
+          if git diff --staged --quiet; then
+            echo "No manifest changes."
+          else
+            git commit -m "chore: update manifest.json [skip ci]"
+            git push
+          fi
+
+      # ── 7. Deploy to GitHub Pages ────────────────────────────────────────
       - name: Deploy
         uses: peaceiris/actions-gh-pages@v4
         with:
