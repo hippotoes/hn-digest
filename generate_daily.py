@@ -470,7 +470,7 @@ def others_table_html(stories: list) -> str:
 
         rows += (
             f"<tr>"
-            f"<td style='width:100px;'>"
+            f"<td style='width:120px;'>"
             f"<div class='rank-num' style='margin-bottom:4px'>#{rank}</div>"
             f"<div class='pts-mono' style='margin-bottom:2px'>{pts} pts</div>"
             f"<div class='cmts-mono'><a href='https://news.ycombinator.com/item?id={hn_id}' target='_blank'>{ncmts} c</a></div>"
@@ -502,26 +502,29 @@ def others_table_html(stories: list) -> str:
 
 def get_navbar_html(manifest: dict, current_file: str = "") -> str:
     """Generate a consistent navigation bar for all pages."""
+    # Ensure current file is in the list even if it's the very first run
+    entries = manifest.get("entries", [])
+    
     date_opts = "\n".join(
         f'<option value="{e["file"]}" {"selected" if e["file"] == current_file else ""}>{e["date"]} ({e["ranking"].upper()})</option>'
-        for e in manifest.get("entries", [])
+        for e in entries
     )
     
     return f"""
 <div class="nav-controls">
   <div class="nav-inner">
-    <div class="toc">
-      <a href="./index.html" class="home-link" style="margin-right:12px; border:1px solid var(--amber); color:var(--amber);">HOME</a>
+    <div class="toc" style="display:flex; align-items:center; gap:8px;">
+      <a href="./index.html" style="font-family:'DM Mono',monospace; font-size:11px; padding:4px 12px; border:1px solid var(--amber); color:var(--amber); border-radius:3px; margin-right:8px; font-weight:600;">HOME</a>
       <a href="#ai-fund" class="ai-fund">AI Fundamentals</a>
       <a href="#ai-app"  class="ai-app">AI Applications</a>
       <a href="#tech"    class="tech">Tech</a>
       <a href="#politics" class="pol">Politics</a>
       <a href="#others"  class="others">Others</a>
     </div>
-    <div style="display:flex; gap:16px; align-items:center;">
+    <div style="display:flex; gap:20px; align-items:center;">
       <div class="ctrl-group">
         <span class="ctrl-label">Font</span>
-        <select class="ctrl-select" onchange="document.body.style.fontSize = this.value">
+        <select class="ctrl-select" onchange="document.body.style.fontSize = this.value" style="background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:4px; padding:4px 8px; font-family:'DM Mono',monospace; font-size:11px;">
           <option value="14px">Small</option>
           <option value="16px" selected>Medium</option>
           <option value="18px">Large</option>
@@ -530,8 +533,8 @@ def get_navbar_html(manifest: dict, current_file: str = "") -> str:
       </div>
       <div class="ctrl-group">
         <span class="ctrl-label">History</span>
-        <select class="ctrl-select" onchange="window.location.href=this.value">
-          <option value="#">Select Date...</option>
+        <select class="ctrl-select" onchange="window.location.href=this.value" style="background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:4px; padding:4px 8px; font-family:'DM Mono',monospace; font-size:11px;">
+          <option value="#">Jump to...</option>
           {date_opts}
         </select>
       </div>
@@ -613,9 +616,10 @@ def build_page(target: date, stories: list, ranking: str, manifest: dict) -> str
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900;1,700&family=Source+Serif+4:ital,wght@0,300;0,400;0,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 {PAGE_CSS}
-.nav-controls{{background:var(--bg3); border-bottom:1px solid var(--border); padding:12px 0; position:sticky; top:0; z-index:1000;}}
+.nav-controls{{background:var(--bg2); border-bottom:1px solid var(--border); padding:10px 0; position:sticky; top:0; z-index:1000; box-shadow:0 4px 20px rgba(0,0,0,0.3);}}
 .nav-inner{{max-width:1100px; margin:0 auto; padding:0 24px; display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap;}}
 .ctrl-group{{display:flex; align-items:center; gap:8px;}}
+.ctrl-label{{font-family:'DM Mono',monospace; font-size:9px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.1em;}}
 </style>
 </head>
 <body>
@@ -675,9 +679,10 @@ def build_index(manifest: dict, latest_stories: list, latest_target: date, lates
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900&family=Source+Serif+4:ital,wght@0,300;0,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 {PAGE_CSS}
-.nav-controls{{background:var(--bg3); border-bottom:1px solid var(--border); padding:12px 0; position:sticky; top:0; z-index:1000;}}
+.nav-controls{{background:var(--bg2); border-bottom:1px solid var(--border); padding:10px 0; position:sticky; top:0; z-index:1000; box-shadow:0 4px 20px rgba(0,0,0,0.3);}}
 .nav-inner{{max-width:1100px; margin:0 auto; padding:0 24px; display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap;}}
 .ctrl-group{{display:flex; align-items:center; gap:8px;}}
+.ctrl-label{{font-family:'DM Mono',monospace; font-size:9px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.1em;}}
 .latest-label{{font-family:'DM Mono',monospace; font-size:12px; color:var(--amber); text-transform:uppercase; letter-spacing:0.2em; margin-bottom:16px;}}
 </style>
 </head>
