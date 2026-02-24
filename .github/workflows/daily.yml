@@ -79,6 +79,7 @@ jobs:
       - name: Generate HN digest
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           python generate_daily.py \
             --date    "${{ steps.params.outputs.date }}"    \

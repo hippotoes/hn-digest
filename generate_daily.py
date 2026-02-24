@@ -20,23 +20,21 @@ from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
 from html import escape
 from concurrent.futures import ThreadPoolExecutor
-import google.generativeai as genai
 
-# ── Model & Paths ─────────────────────────────────────────────────────────────
+# ── Configuration ─────────────────────────────────────────────────────────────
 
-# Fallback chain for direct API calls
-MODEL_CHAIN = [
-    "gemini-2.0-flash", 
-    "gemini-1.5-flash", 
-    "gemini-1.5-flash-8b",
-    "gemini-1.5-pro"
-]
-CURRENT_MODEL_INDEX = 0
+def load_config():
+    conf_path = Path("config.json")
+    if conf_path.exists():
+        return json.loads(conf_path.read_text())
+    return {
+        "primary_provider": "gemini",
+        "gemini_model": "gemini-2.0-flash",
+        "deepseek_model": "deepseek-reasoner",
+        "deepseek_api_base": "https://api.deepseek.com"
+    }
 
-# Configure SDK
-if "GEMINI_API_KEY" in os.environ:
-    genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-
+CONFIG = load_config()
 OUTPUT_DIR = Path("site")
 OUTPUT_DIR.mkdir(exist_ok=True)
 MANIFEST   = OUTPUT_DIR / "manifest.json"
@@ -56,16 +54,13 @@ RANKING_TAGS = {
 
 
 def get_stories_for_date(target: date, n: int = 20, ranking: str = "top") -> list:
-    # Widen window to 48 hours to capture stories created late the previous day 
-    # that are "top" on the target day.
-    end   = int(datetime(target.year, target.month, target.day,
-                         tzinfo=timezone.utc).timestamp()) + 86400
-    start = end - (86400 * 2) 
-    
+    start = int(datetime(target.year, target.month, target.day,
+                         tzinfo=timezone.utc).timestamp())
+    end   = start + 86400
     params = {
         "tags":           RANKING_TAGS.get(ranking, "front_page"),
         "numericFilters": f"created_at_i>{start},created_at_i<{end}",
-        "hitsPerPage":    100, # Fetch more to ensure we have enough after deduping
+        "hitsPerPage":    n * 2,
     }
     try:
         resp = requests.get(HN_ALGOLIA, params=params, timeout=20)
@@ -152,42 +147,52 @@ def fetch_article(url: str, max_chars: int = 20_000) -> str:
 
 # ── Gemini CLI ────────────────────────────────────────────────────────────────
 
-def call_gemini(prompt: str) -> str:
-    """
-    Invoke Gemini API directly using the SDK to ensure exactly ONE request.
-    Handles daily quota exhaustion by falling back through the model chain.
-    """
-    global CURRENT_MODEL_INDEX
+def call_deepseek(prompt: str) -> str:
+    """Invoke DeepSeek API directly."""
+    api_key = os.environ.get("DEEPSEEK_API_KEY")
+    if not api_key:
+        raise RuntimeError("DEEPSEEK_API_KEY env var not set")
     
-    while CURRENT_MODEL_INDEX < len(MODEL_CHAIN):
-        model_name = MODEL_CHAIN[CURRENT_MODEL_INDEX]
-        try:
-            model = genai.GenerativeModel(model_name)
-            response = model.generate_content(
-                prompt,
-                generation_config=genai.types.GenerationConfig(
-                    temperature=0.2,
-                )
-            )
-            return response.text.strip()
-            
-        except Exception as e:
-            err_msg = str(e).lower()
-            if "429" in err_msg or "quota" in err_msg or "exhausted" in err_msg:
-                print(f"         ⚠ Quota exhausted for {model_name}. Falling back...")
-                CURRENT_MODEL_INDEX += 1
-                if CURRENT_MODEL_INDEX < len(MODEL_CHAIN):
-                    time.sleep(2)
-                    continue
-            
-            # If it's a 404 or other critical error, try next model or raise
-            if "404" in err_msg or "not found" in err_msg:
-                CURRENT_MODEL_INDEX += 1
-                continue
-                
-            raise RuntimeError(f"Gemini API error ({model_name}): {e}")
+    url = f"{CONFIG.get('deepseek_api_base', 'https://api.deepseek.com')}/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": CONFIG.get("deepseek_model", "deepseek-reasoner"),
+        "messages": [
+            {"role": "system", "content": "You are a senior tech analyst. Return ONLY valid JSON."},
+            {"role": "user", "content": prompt}
+        ],
+        "response_format": {"type": "json_object"}
+    }
+    
+    r = requests.post(url, headers=headers, json=payload, timeout=120)
+    r.raise_for_status()
+    return r.json()["choices"][0]["message"]["content"]
 
-    raise RuntimeError("All models in fallback chain exhausted.")
+def call_gemini_cli(prompt: str) -> str:
+    """Invoke Gemini CLI."""
+    proc = subprocess.run(
+        ["gemini", "--model", CONFIG["gemini_model"], "--output-format", "json", "-p", prompt],
+        capture_output=True, text=True, timeout=180
+    )
+    if proc.returncode == 0:
+        try:
+            outer = json.loads(proc.stdout)
+            if isinstance(outer, dict) and "response" in outer:
+                return outer["response"].strip()
+            return proc.stdout.strip()
+        except:
+            return proc.stdout.strip()
+    
+    stderr = proc.stderr.strip()[:400]
+    raise RuntimeError(f"Gemini CLI error: {stderr}")
+
+def call_ai(prompt: str) -> str:
+    if CONFIG["primary_provider"] == "deepseek":
+        return call_deepseek(prompt)
+    return call_gemini_cli(prompt)
 
 
 # ── Analysis Schema & Prompt ───────────────────────────────────────────────────
@@ -257,7 +262,7 @@ def analyze_story(story: dict, article: str, comments: list) -> dict:
         {ANALYSIS_SCHEMA}
     """).strip()
 
-    raw = call_gemini(prompt)
+    raw = call_ai(prompt)
 
     # Strip any accidental markdown fencing
     raw = re.sub(r"^```(?:json)?\s*", "", raw.strip(), flags=re.I)
@@ -270,7 +275,7 @@ def analyze_story(story: dict, article: str, comments: list) -> dict:
         m = re.search(r"\{[\s\S]*\}", raw)
         if m:
             return json.loads(m.group())
-        raise ValueError(f"Could not parse JSON from Gemini response:\n{raw[:300]}")
+        raise ValueError(f"Could not parse JSON from AI response:\n{raw[:300]}")
 
 
 # ── HTML Constants ─────────────────────────────────────────────────────────────
@@ -640,7 +645,7 @@ def build_page(target: date, stories: list, ranking: str, manifest: dict) -> str
 
 <div class="footer">
   <div class="container">
-    <p>Data: HN Algolia Search + Firebase APIs · Summaries: Gemini via Gemini CLI</p>
+    <p>Data: HN Algolia Search + Firebase APIs · Summaries: {CONFIG["deepseek_model"] if CONFIG["primary_provider"] == "deepseek" else CONFIG["gemini_model"]} via {CONFIG["primary_provider"].capitalize()}</p>
     <p style="margin-top:6px;font-size:10px">
       Sentiment analysis uses real HN comment threads fetched at generation time.
       Agreement estimates are inferred from comment upvote distribution and reply volume.
@@ -670,6 +675,10 @@ function navigate() {{
 
 def build_index(manifest: dict) -> str:
     cal_entries = json.dumps(manifest.get("entries", []))
+    # Active model/provider for footer
+    model_str = CONFIG["deepseek_model"] if CONFIG["primary_provider"] == "deepseek" else CONFIG["gemini_model"]
+    provider_str = CONFIG["primary_provider"].capitalize()
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -680,40 +689,43 @@ def build_index(manifest: dict) -> str:
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900&family=Source+Serif+4:ital,wght@0,300;0,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 {PAGE_CSS}
-.hero{{max-width:680px;margin:48px auto 0}}
-.hero p{{font-size:15px;color:var(--text-dim);font-weight:300;line-height:1.7}}
-h2{{font-family:'Playfair Display',serif;font-size:1.5rem;font-style:italic;
-    color:var(--text);margin:48px 0 20px;padding-bottom:12px;border-bottom:1px solid var(--border)}}
-.calendar{{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px}}
-.cal-card{{background:var(--surface);border:1px solid var(--border);border-radius:6px;
-           padding:14px 16px;transition:border-color .2s,transform .15s}}
-.cal-card:hover{{border-color:var(--amber);transform:translateY(-2px)}}
-.cal-card a{{display:block;color:inherit}}
-.cal-date{{font-family:'DM Mono',monospace;font-size:11px;color:var(--amber);
-            letter-spacing:.1em;margin-bottom:4px}}
-.cal-day{{font-size:13px;color:var(--text)}}
-.cal-meta{{font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);margin-top:4px}}
+.hero{{max-width:680px;margin:48px auto 0; text-align:center;}}
+.hero p{{font-size:16px;color:var(--text-dim);font-weight:300;line-height:1.7}}
+h2{{font-family:'Playfair Display',serif;font-size:1.8rem;font-style:italic;
+    color:var(--text);margin:64px 0 24px;padding-bottom:12px;border-bottom:1px solid var(--border); text-align:center;}}
+.calendar{{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px; margin-top:32px;}}
+.cal-card{{background:var(--surface);border:1px solid var(--border);border-radius:8px;
+           padding:20px;transition:all .2s ease; cursor:pointer; position:relative; overflow:hidden;}}
+.cal-card::after{{content:''; position:absolute; top:0; left:0; width:100%; height:4px; background:var(--amber); opacity:0; transition:opacity .2s;}}
+.cal-card:hover{{border-color:var(--amber);transform:translateY(-4px); background:var(--bg3);}}
+.cal-card:hover::after{{opacity:1;}}
+.cal-card a{{display:block;color:inherit; text-decoration:none;}}
+.cal-date{{font-family:'DM Mono',monospace;font-size:12px;color:var(--amber);
+            letter-spacing:.1em;margin-bottom:8px; font-weight:600;}}
+.cal-day{{font-size:15px;color:var(--text); font-weight:500; font-family:'Playfair Display',serif;}}
+.cal-meta{{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);margin-top:12px; display:flex; justify-content:space-between; align-items:center;}}
+.meta-tag{{padding:2px 6px; background:rgba(212,160,23,0.1); border-radius:3px; color:var(--amber-light);}}
 </style>
 </head>
 <body>
 <div class="masthead">
-  <div class="masthead-sub">Daily Intelligence Brief</div>
+  <div class="masthead-sub">Archive & Calendar</div>
   <h1>Hacker <span>News</span></h1>
-  <div class="masthead-date">AI &amp; TECH DIGEST ARCHIVE</div>
+  <div class="masthead-date">INTELLIGENT DAILY BRIEFINGS</div>
   <div class="masthead-rule"></div>
 </div>
-<div class="container" style="padding-bottom:80px">
+<div class="container" style="padding-bottom:100px">
   <div class="hero">
-    <p>Each day's top 20 Hacker News stories — article summaries (300+ words), key highlights,
-    and comment sentiment analysis — categorised into AI Fundamentals, AI Applications,
-    Politics, and Others. Updated automatically every day.</p>
+    <p>AI-powered deep analysis of Hacker News. Each report includes 400+ word technical summaries, 
+    community sentiment opinion clusters, and key technical highlights. 
+    Powered by <strong>{model_str}</strong>.</p>
   </div>
-  <h2>Reports</h2>
+  <h2>Daily Briefings</h2>
   <div class="calendar" id="cal"></div>
 </div>
 <div class="footer">
   <div class="container">
-    <p>Updated daily via GitHub Actions · HN API + Algolia · Gemini via Gemini CLI</p>
+    <p>Updated daily via GitHub Actions · {model_str} via {provider_str}</p>
   </div>
 </div>
 <script>
@@ -721,15 +733,19 @@ const entries = {cal_entries};
 const cal = document.getElementById('cal');
 entries.forEach(e => {{
   const d  = new Date(e.date + 'T12:00:00Z');
-  const wd = d.toLocaleDateString('en-US', {{weekday:'short', timeZone:'UTC'}});
+  const wd = d.toLocaleDateString('en-US', {{weekday:'long', timeZone:'UTC'}});
   const pr = d.toLocaleDateString('en-US', {{month:'short', day:'numeric', year:'numeric', timeZone:'UTC'}});
   const div = document.createElement('div');
   div.className = 'cal-card';
-  div.innerHTML = `<a href="${{e.file}}">
+  div.onclick = () => window.location.href = e.file;
+  div.innerHTML = `
     <div class="cal-date">${{e.date}}</div>
-    <div class="cal-day">${{wd}} · ${{pr}}</div>
-    <div class="cal-meta">${{e.story_count}} stories · ${{e.ranking.toUpperCase()}}</div>
-  </a>`;
+    <div class="cal-day">${{wd}}</div>
+    <div style="font-size:12px; color:var(--text-dim); margin-top:4px;">${{pr}}</div>
+    <div class="cal-meta">
+      <span>${{e.story_count}} Stories</span>
+      <span class="meta-tag">${{e.ranking.toUpperCase()}}</span>
+    </div>`;
   cal.appendChild(div);
 }});
 </script>

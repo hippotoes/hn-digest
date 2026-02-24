@@ -1,0 +1,6 @@
+{
+  "primary_provider": "deepseek",
+  "gemini_model": "gemini-2.0-flash",
+  "deepseek_model": "deepseek-reasoner",
+  "deepseek_api_base": "https://api.deepseek.com"
+}
