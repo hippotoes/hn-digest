@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>HN Digest · 2026-02-23</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900;1,700&family=Source+Serif+4:ital,wght@0,300;0,400;0,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>:root{--bg:#0f0e0c;--bg2:#181613;--bg3:#211f1b;--surface:#242119;--border:#332f28;
+--amber:#d4a017;--amber-light:#f0bf4c;--amber-dim:rgba(212,160,23,.12);
+--text:#e8e2d6;--text-dim:#9c9285;--text-muted:#5a5446;
+--red:#c45c3a;--green:#5a9e6f;--blue:#4a8ab5;--purple:#8a6bbf;}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:'Source Serif 4',Georgia,serif;font-size:16px;line-height:1.7}
+a{color:inherit;text-decoration:none}
+a:hover{opacity:.75}
+.masthead{border-bottom:1px solid var(--border);padding:28px 0 20px;text-align:center;background:var(--bg2);position:relative;overflow:hidden}
+.masthead::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 80% 60% at 50% 0%,rgba(212,160,23,.07) 0%,transparent 70%);pointer-events:none}
+.masthead-sub{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.3em;color:var(--amber);text-transform:uppercase;margin-bottom:10px}
+.masthead h1{font-family:'Playfair Display',serif;font-size:clamp(2rem,5vw,3.8rem);font-weight:900;letter-spacing:-.02em;color:var(--text);line-height:1}
+.masthead h1 span{color:var(--amber)}
+.masthead-date{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.15em;color:var(--text-dim);margin-top:10px}
+.masthead-rule{width:60px;height:2px;background:var(--amber);margin:14px auto 0}
+.controls{background:var(--bg3);border-bottom:1px solid var(--border);padding:10px 0;position:sticky;top:0;z-index:100}
+.controls-inner{max-width:1100px;margin:0 auto;padding:0 24px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.ctrl-label{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.2em;color:var(--text-muted);text-transform:uppercase;white-space:nowrap}
+.ctrl-select{font-family:'DM Mono',monospace;font-size:12px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:5px 10px;cursor:pointer;outline:none}
+.ctrl-select:hover{border-color:var(--amber)}
+.toc-sep{flex:1}
+.toc{display:flex;gap:6px;flex-wrap:wrap}
+.toc a{font-family:'DM Mono',monospace;font-size:11px;padding:4px 10px;border-radius:3px;transition:opacity .15s}
+.toc a.ai-fund{color:#e87a5a;border:1px solid rgba(196,92,58,.3)}
+.toc a.ai-app{color:#7ec890;border:1px solid rgba(90,158,111,.3)}
+.toc a.pol{color:#7ab8e0;border:1px solid rgba(74,138,181,.3)}
+.toc a.others{color:var(--text-dim);border:1px solid var(--border)}
+.toc a:hover{opacity:.7}
+.container{max-width:1100px;margin:0 auto;padding:0 24px}
+.section-header{display:flex;align-items:center;gap:16px;margin:48px 0 24px}
+.section-badge{font-family:'DM Mono',monospace;font-size:10px;font-weight:500;letter-spacing:.25em;text-transform:uppercase;padding:5px 14px;border-radius:3px;white-space:nowrap}
+.badge-ai-fund{background:rgba(196,92,58,.15);color:#e87a5a;border:1px solid rgba(196,92,58,.3)}
+.badge-ai-app{background:rgba(90,158,111,.15);color:#7ec890;border:1px solid rgba(90,158,111,.3)}
+.badge-pol{background:rgba(74,138,181,.15);color:#7ab8e0;border:1px solid rgba(74,138,181,.3)}
+.badge-others{background:rgba(122,106,90,.12);color:var(--text-dim);border:1px solid var(--border)}
+.section-line{flex:1;height:1px;background:var(--border)}
+.story-card{background:var(--surface);border:1px solid var(--border);border-radius:6px;margin-bottom:28px;overflow:hidden;transition:border-color .2s}
+.story-card:hover{border-color:rgba(212,160,23,.3)}
+.story-header{padding:22px 26px 16px;border-bottom:1px solid var(--border)}
+.story-num{font-family:'DM Mono',monospace;font-size:11px;color:var(--amber);letter-spacing:.1em;margin-bottom:6px}
+.story-title{font-family:'Playfair Display',serif;font-size:1.25rem;font-weight:700;line-height:1.3;color:var(--text)}
+.story-title a{color:inherit}
+.story-meta{display:flex;gap:12px;margin-top:8px;flex-wrap:wrap}
+.meta-pill{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.05em;color:var(--text-dim)}
+.meta-pill span{color:var(--amber-light)}
+.story-body{padding:20px 26px}
+.story-summary p{margin-bottom:14px;font-size:15px;color:#d0c9bc;font-weight:300}
+.story-summary p:last-child{margin-bottom:0}
+.highlight-box{margin:16px 0;padding:14px 18px;background:var(--amber-dim);border-left:3px solid var(--amber);border-radius:0 4px 4px 0}
+.highlight-box p{font-size:14px!important;font-style:italic;color:var(--amber-light)!important;margin:0!important}
+.key-points{margin:16px 0}
+.key-points-title{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px}
+.key-points ul{list-style:none;padding:0}
+.key-points ul li{font-size:14px;color:#c8c0b0;padding:3px 0 3px 18px;position:relative;font-weight:300}
+.key-points ul li::before{content:'▸';position:absolute;left:0;color:var(--amber);font-size:12px}
+.sentiment-section{margin-top:20px;border-top:1px solid var(--border);padding-top:18px}
+.sentiment-title{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.25em;text-transform:uppercase;color:var(--text-muted);margin-bottom:12px}
+.sentiment-table{width:100%;border-collapse:collapse;font-size:13.5px}
+.sentiment-table thead tr{border-bottom:1px solid var(--border)}
+.sentiment-table thead th{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--text-muted);padding:6px 12px 8px;text-align:left;font-weight:400}
+.sentiment-table thead th:last-child{text-align:right}
+.sentiment-table tbody tr{border-bottom:1px solid rgba(51,47,40,.5)}
+.sentiment-table tbody tr:last-child{border-bottom:none}
+.sentiment-table td{padding:12px;vertical-align:top;color:#c8c0b0;font-weight:300;line-height:1.55}
+.sentiment-table td:first-child{width:20%;font-family:'DM Mono',monospace;font-size:12px;padding-top:14px;color:var(--text);font-weight:500}
+.sentiment-table td:last-child{width:12%;text-align:right;padding-top:14px;white-space:nowrap}
+.sent-positive{border-left:2px solid var(--green)}
+.sent-negative{border-left:2px solid var(--red)}
+.sent-neutral{border-left:2px solid var(--text-muted)}
+.sent-mixed{border-left:2px solid var(--amber)}
+.sent-debate{border-left:2px solid var(--purple)}
+.vote-count{font-family:'DM Mono',monospace;font-size:12px;color:var(--amber-light);font-weight:500}
+.others-table-wrap{overflow-x:auto}
+.others-table{width:100%;border-collapse:collapse;font-size:13px}
+.others-table thead tr{background:var(--bg3);border-bottom:1px solid var(--border)}
+.others-table thead th{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted);padding:9px 14px;text-align:left;font-weight:400}
+.others-table tbody tr{border-bottom:1px solid var(--border)}
+.others-table tbody tr:hover{background:rgba(255,255,255,.02)}
+.others-table td{padding:11px 14px;vertical-align:top;color:#c0b8a8;font-weight:300;line-height:1.5}
+.others-table td:first-child{font-weight:400;color:var(--text)}
+.rank-num{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted)}
+.pts-mono{font-family:'DM Mono',monospace;font-size:11px;color:var(--amber-light);white-space:nowrap}
+.cmts-mono{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-dim);white-space:nowrap}
+.footer{border-top:1px solid var(--border);margin-top:64px;padding:28px 0;text-align:center}
+.footer p{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.1em;color:var(--text-muted)}
+@media(max-width:640px){.controls-inner{gap:8px}}</style>
+</head>
+<body>
+
+<div class="masthead">
+  <div class="masthead-sub">Daily Intelligence Brief</div>
+  <h1>Hacker <span>News</span></h1>
+  <div class="masthead-date">MONDAY, FEBRUARY 23, 2026 · TOP 18 · RANKED BY BEST</div>
+  <div class="masthead-rule"></div>
+</div>
+
+<div class="controls">
+  <div class="controls-inner">
+    <span class="ctrl-label">Date</span>
+    <select class="ctrl-select" id="dateSelect" onchange="navigate()">
+      <option value="2026-02-23"  selected>2026-02-23</option>
+<option value="2026-02-22">2026-02-22</option>
+    </select>
+    <span class="ctrl-label">Ranking</span>
+    <select class="ctrl-select" id="rankSelect" onchange="navigate()">
+      <option value="best"  selected>BEST</option>
+<option value="top">TOP</option>
+<option value="new">NEW</option>
+<option value="ask">ASK</option>
+<option value="show">SHOW</option>
+    </select>
+    <div class="toc-sep"></div>
+    <div class="toc">
+      <a href="#ai-fund" class="ai-fund">AI Fundamentals</a>
+      <a href="#ai-app"  class="ai-app">AI Applications</a>
+      <a href="#politics" class="pol">Politics</a>
+      <a href="#others"  class="others">Others</a>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+<div class="section-header" id="others"><span class="section-badge badge-others">Others</span><div class="section-line"></div></div>
+
+<div class="story-card">
+  <div class="story-body" style="padding:18px 26px">
+    <p style="font-size:14px;color:var(--text-dim);margin-bottom:18px">
+      Remaining stories — concise reference table.
+    </p>
+    <div class="others-table-wrap">
+      <table class="others-table">
+        <thead><tr><th>#</th><th>Story</th><th>Pts</th><th>Cmts</th><th>Summary</th></tr></thead>
+        <tbody><tr><td><span class='rank-num'>#1</span></td><td><a href='https://spectrum.ieee.org/age-verification' target='_blank'>The Age Verification Trap: Verifying age undermines everyone&#x27;s data protection</a></td><td><span class='pts-mono'>1424</span></td><td><a href='https://news.ycombinator.com/item?id=47122715' target='_blank'><span class='cmts-mono'>1079</span></a></td><td>The Age Verification Trap: Verifying age undermines everyone&#x27;s data protection</td></tr><tr><td><span class='rank-num'>#2</span></td><td><a href='https://ladybird.org/posts/adopting-rust/' target='_blank'>Ladybird adopts Rust, with help from AI</a></td><td><span class='pts-mono'>1157</span></td><td><a href='https://news.ycombinator.com/item?id=47120899' target='_blank'><span class='cmts-mono'>635</span></a></td><td>Ladybird adopts Rust, with help from AI</td></tr><tr><td><span class='rank-num'>#3</span></td><td><a href='https://vladimir.varank.in/notes/2026/02/freebsd-brcmfmac/' target='_blank'>FreeBSD doesn&#x27;t have Wi-Fi driver for my old MacBook, so AI built one for me</a></td><td><span class='pts-mono'>350</span></td><td><a href='https://news.ycombinator.com/item?id=47129361' target='_blank'><span class='cmts-mono'>287</span></a></td><td>FreeBSD doesn&#x27;t have Wi-Fi driver for my old MacBook, so AI built one for me</td></tr><tr><td><span class='rank-num'>#4</span></td><td><a href='https://github.com/pgdogdev/pgdog' target='_blank'>Show HN: PgDog – Scale Postgres without changing the app</a></td><td><span class='pts-mono'>254</span></td><td><a href='https://news.ycombinator.com/item?id=47123631' target='_blank'><span class='cmts-mono'>51</span></a></td><td>Show HN: PgDog – Scale Postgres without changing the app</td></tr><tr><td><span class='rank-num'>#5</span></td><td><a href='https://rsdoiel.github.io/blog/2026/02/21/a_simple_web_we_own.html' target='_blank'>A simple web we own</a></td><td><span class='pts-mono'>226</span></td><td><a href='https://news.ycombinator.com/item?id=47124149' target='_blank'><span class='cmts-mono'>152</span></a></td><td>A simple web we own</td></tr><tr><td><span class='rank-num'>#6</span></td><td><a href='https://gwern.net/doc/iq/high/smpy/1984-clements.pdf' target='_blank'>Terence Tao, at 8 years old (1984) [pdf]</a></td><td><span class='pts-mono'>223</span></td><td><a href='https://news.ycombinator.com/item?id=47123689' target='_blank'><span class='cmts-mono'>84</span></a></td><td>Terence Tao, at 8 years old (1984) [pdf]</td></tr><tr><td><span class='rank-num'>#7</span></td><td><a href='https://opper.ai/blog/car-wash-test' target='_blank'>“Car Wash” test with 53 models</a></td><td><span class='pts-mono'>206</span></td><td><a href='https://news.ycombinator.com/item?id=47128138' target='_blank'><span class='cmts-mono'>242</span></a></td><td>“Car Wash” test with 53 models</td></tr><tr><td><span class='rank-num'>#8</span></td><td><a href='https://dork.dev/posts/2026-02-20-ported-coreboot/' target='_blank'>I Ported Coreboot to the ThinkPad X270</a></td><td><span class='pts-mono'>175</span></td><td><a href='https://news.ycombinator.com/item?id=47130860' target='_blank'><span class='cmts-mono'>26</span></a></td><td>I Ported Coreboot to the ThinkPad X270</td></tr><tr><td><span class='rank-num'>#9</span></td><td><a href='https://forums.atariage.com/topic/380883-unix99-a-unix-like-os-for-the-ti-994a/' target='_blank'>UNIX99, a UNIX-like OS for the TI-99/4A (2025)</a></td><td><span class='pts-mono'>173</span></td><td><a href='https://news.ycombinator.com/item?id=47127986' target='_blank'><span class='cmts-mono'>53</span></a></td><td>UNIX99, a UNIX-like OS for the TI-99/4A (2025)</td></tr><tr><td><span class='rank-num'>#10</span></td><td><a href='https://simonwillison.net/guides/agentic-engineering-patterns/code-is-cheap/' target='_blank'>Writing code is cheap now</a></td><td><span class='pts-mono'>157</span></td><td><a href='https://news.ycombinator.com/item?id=47125374' target='_blank'><span class='cmts-mono'>221</span></a></td><td>Writing code is cheap now</td></tr><tr><td><span class='rank-num'>#11</span></td><td><a href='https://writings.stephenwolfram.com/2026/02/making-wolfram-tech-available-as-a-foundation-tool-for-llm-systems/' target='_blank'>Making Wolfram Tech Available as a Foundation Tool for LLM Systems</a></td><td><span class='pts-mono'>153</span></td><td><a href='https://news.ycombinator.com/item?id=47129727' target='_blank'><span class='cmts-mono'>82</span></a></td><td>Making Wolfram Tech Available as a Foundation Tool for LLM Systems</td></tr><tr><td><span class='rank-num'>#12</span></td><td><a href='https://sowbot.co.uk/' target='_blank'>Show HN: Sowbot – Open-hardware agricultural robot (ROS2, RTK GPS)</a></td><td><span class='pts-mono'>151</span></td><td><a href='https://news.ycombinator.com/item?id=47123894' target='_blank'><span class='cmts-mono'>41</span></a></td><td>Show HN: Sowbot – Open-hardware agricultural robot (ROS2, RTK GPS)</td></tr><tr><td><span class='rank-num'>#13</span></td><td><a href='https://smallcultfollowing.com/babysteps/blog/2026/02/23/ubuntu-rustnation/' target='_blank'>What it means that Ubuntu is using Rust</a></td><td><span class='pts-mono'>136</span></td><td><a href='https://news.ycombinator.com/item?id=47125286' target='_blank'><span class='cmts-mono'>151</span></a></td><td>What it means that Ubuntu is using Rust</td></tr><tr><td><span class='rank-num'>#14</span></td><td><a href='https://github.com/vignesh07/babyshark' target='_blank'>Show HN: Babyshark – Wireshark made easy (terminal UI for PCAPs)</a></td><td><span class='pts-mono'>110</span></td><td><a href='https://news.ycombinator.com/item?id=47128535' target='_blank'><span class='cmts-mono'>40</span></a></td><td>Show HN: Babyshark – Wireshark made easy (terminal UI for PCAPs)</td></tr><tr><td><span class='rank-num'>#15</span></td><td><a href='https://www.colino.net/wordpress/archives/2026/02/23/the-challenges-of-porting-shufflepuck-cafe-to-the-8-bits-apple-ii/' target='_blank'>The challenges of porting Shufflepuck Cafe to the 8 bits Apple II</a></td><td><span class='pts-mono'>71</span></td><td><a href='https://news.ycombinator.com/item?id=47128631' target='_blank'><span class='cmts-mono'>14</span></a></td><td>The challenges of porting Shufflepuck Cafe to the 8 bits Apple II</td></tr><tr><td><span class='rank-num'>#16</span></td><td><a href='https://journals.plos.org/plosgenetics/article?id=10.1371/journal.pgen.1012002' target='_blank'>Genetic underpinnings of chills from art and music</a></td><td><span class='pts-mono'>15</span></td><td><a href='https://news.ycombinator.com/item?id=47118838' target='_blank'><span class='cmts-mono'>4</span></a></td><td>Genetic underpinnings of chills from art and music</td></tr><tr><td><span class='rank-num'>#17</span></td><td><a href='https://www.ycombinator.com/companies/sim/jobs/Rj8TVRM-software-engineer-platform' target='_blank'>SIM (YC X25) Is Hiring the Best Engineers in San Francisco</a></td><td><span class='pts-mono'>0</span></td><td><a href='https://news.ycombinator.com/item?id=47128740' target='_blank'><span class='cmts-mono'>0</span></a></td><td>SIM (YC X25) Is Hiring the Best Engineers in San Francisco</td></tr><tr><td><span class='rank-num'>#18</span></td><td><a href='https://www.ycombinator.com/companies/hadrius/jobs/ObynDF9-senior-product-designer' target='_blank'>Hadrius (YC W23) Is Hiring Designers Who Code</a></td><td><span class='pts-mono'>0</span></td><td><a href='https://news.ycombinator.com/item?id=47125026' target='_blank'><span class='cmts-mono'>0</span></a></td><td>Hadrius (YC W23) Is Hiring Designers Who Code</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+</div>
+
+<div class="footer">
+  <div class="container">
+    <p>Data: HN Algolia Search + Firebase APIs · Summaries: Claude claude-sonnet-4-6 via Claude Code CLI</p>
+    <p style="margin-top:6px;font-size:10px">
+      Sentiment analysis uses real HN comment threads fetched at generation time.
+      Agreement estimates are inferred from comment upvote distribution and reply volume.
+    </p>
+  </div>
+</div>
+
+<script>
+const MANIFEST = {"entries": [{"date": "2026-02-23", "file": "2026-02-23.html", "ranking": "best", "story_count": 18}, {"date": "2026-02-22", "file": "2026-02-22.html", "ranking": "best", "story_count": 14}], "files": ["2026-02-23.html", "2026-02-22.html"]};
+function navigate() {
+  const d = document.getElementById('dateSelect').value;
+  const r = document.getElementById('rankSelect').value;
+  const suffix = r !== 'best' ? '-' + r : '';
+  const target = d + suffix + '.html';
+  const files  = MANIFEST.files || [];
+  if (files.includes(target) || target === window.location.pathname.split('/').pop()) {
+    window.location.href = target;
+  } else {
+    // fallback: try the best-ranking page for that date
+    window.location.href = d + '.html';
+  }
+}
+</script>
+</body>
+</html>

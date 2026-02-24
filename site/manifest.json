@@ -1,6 +1,12 @@
 {
   "entries": [
     {
+      "date": "2026-02-23",
+      "file": "2026-02-23.html",
+      "ranking": "best",
+      "story_count": 18
+    },
+    {
       "date": "2026-02-22",
       "file": "2026-02-22.html",
       "ranking": "best",
@@ -8,6 +14,7 @@
     }
   ],
   "files": [
+    "2026-02-23.html",
     "2026-02-22.html"
   ]
 }
