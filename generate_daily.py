@@ -502,7 +502,6 @@ def others_table_html(stories: list) -> str:
 
 def get_navbar_html(manifest: dict, current_file: str = "") -> str:
     """Generate a consistent navigation bar for all pages."""
-    # Ensure current file is in the list even if it's the very first run
     entries = manifest.get("entries", [])
     
     date_opts = "\n".join(
@@ -514,26 +513,17 @@ def get_navbar_html(manifest: dict, current_file: str = "") -> str:
 <div class="nav-controls">
   <div class="nav-inner">
     <div class="toc" style="display:flex; align-items:center; gap:8px;">
-      <a href="./index.html" style="font-family:'DM Mono',monospace; font-size:11px; padding:4px 12px; border:1px solid var(--amber); color:var(--amber); border-radius:3px; margin-right:8px; font-weight:600;">HOME</a>
-      <a href="#ai-fund" class="ai-fund">AI Fundamentals</a>
-      <a href="#ai-app"  class="ai-app">AI Applications</a>
-      <a href="#tech"    class="tech">Tech</a>
-      <a href="#politics" class="pol">Politics</a>
-      <a href="#others"  class="others">Others</a>
+      <a href="./index.html" style="font-family:'DM Mono',monospace; font-size:11px; padding:5px 14px; background:var(--amber); color:var(--bg); border-radius:3px; margin-right:12px; font-weight:800; letter-spacing:0.05em;">HOME</a>
+      <a href="#ai-fund" class="ai-fund" style="font-family:'DM Mono',monospace; font-size:10px; padding:4px 10px; border-radius:3px; border:1px solid rgba(196,92,58,0.3); color:#e87a5a;">AI Fundamentals</a>
+      <a href="#ai-app"  class="ai-app"  style="font-family:'DM Mono',monospace; font-size:10px; padding:4px 10px; border-radius:3px; border:1px solid rgba(90,158,111,0.3); color:#7ec890;">AI Applications</a>
+      <a href="#tech"    class="tech"    style="font-family:'DM Mono',monospace; font-size:10px; padding:4px 10px; border-radius:3px; border:1px solid rgba(74,181,168,0.3); color:var(--teal);">Tech</a>
+      <a href="#politics" class="pol"     style="font-family:'DM Mono',monospace; font-size:10px; padding:4px 10px; border-radius:3px; border:1px solid rgba(74,138,181,0.3); color:#7ab8e0;">Politics</a>
+      <a href="#others"  class="others"  style="font-family:'DM Mono',monospace; font-size:10px; padding:4px 10px; border-radius:3px; border:1px solid var(--border); color:var(--text-dim);">Others</a>
     </div>
     <div style="display:flex; gap:20px; align-items:center;">
       <div class="ctrl-group">
-        <span class="ctrl-label">Font</span>
-        <select class="ctrl-select" onchange="document.body.style.fontSize = this.value" style="background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:4px; padding:4px 8px; font-family:'DM Mono',monospace; font-size:11px;">
-          <option value="14px">Small</option>
-          <option value="16px" selected>Medium</option>
-          <option value="18px">Large</option>
-          <option value="20px">X-Large</option>
-        </select>
-      </div>
-      <div class="ctrl-group">
         <span class="ctrl-label">History</span>
-        <select class="ctrl-select" onchange="window.location.href=this.value" style="background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:4px; padding:4px 8px; font-family:'DM Mono',monospace; font-size:11px;">
+        <select class="ctrl-select" onchange="window.location.href=this.value" style="background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:4px; padding:4px 8px; font-family:'DM Mono',monospace; font-size:11px; cursor:pointer;">
           <option value="#">Jump to...</option>
           {date_opts}
         </select>
