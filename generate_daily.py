@@ -673,11 +673,31 @@ function navigate() {{
 </html>"""
 
 
-def build_index(manifest: dict) -> str:
+def build_index(manifest: dict, latest_stories: list, latest_target: date, latest_ranking: str) -> str:
     cal_entries = json.dumps(manifest.get("entries", []))
     # Active model/provider for footer
     model_str = CONFIG["deepseek_model"] if CONFIG["primary_provider"] == "deepseek" else CONFIG["gemini_model"]
     provider_str = CONFIG["primary_provider"].capitalize()
+    
+    # Generate HTML for the latest stories (reuse section logic)
+    cats: dict[str, list] = {
+        "AI Fundamentals": [], "AI Applications": [], "Tech": [], "Politics": [], "Others": []
+    }
+    for i, s in enumerate(latest_stories):
+        cat = s.get("analysis", {}).get("topic_category", "Others")
+        if cat not in cats: cat = "Others"
+        cats[cat].append((i + 1, s))
+
+    latest_sections = ""
+    for cat, items in cats.items():
+        if not items: continue
+        sid, bid = SECTION_ID[cat], BADGE_CLASS[cat]
+        latest_sections += f'<div class="section-header" id="{sid}"><span class="section-badge {bid}">{escape(cat)}</span><div class="section-line"></div></div>\n'
+        if cat == "Others": latest_sections += others_table_html(items)
+        else:
+            for rank, story in items: latest_sections += story_card_html(rank, story)
+
+    date_str = latest_target.strftime("%A, %B %d, %Y").upper()
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -689,10 +709,10 @@ def build_index(manifest: dict) -> str:
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900&family=Source+Serif+4:ital,wght@0,300;0,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 {PAGE_CSS}
-.hero{{max-width:680px;margin:48px auto 0; text-align:center;}}
-.hero p{{font-size:16px;color:var(--text-dim);font-weight:300;line-height:1.7}}
-h2{{font-family:'Playfair Display',serif;font-size:1.8rem;font-style:italic;
-    color:var(--text);margin:64px 0 24px;padding-bottom:12px;border-bottom:1px solid var(--border); text-align:center;}}
+.hero{{max-width:800px;margin:48px auto 0; text-align:center;}}
+.hero p{{font-size:18px;color:var(--text-dim);font-weight:300;line-height:1.7}}
+h2{{font-family:'Playfair Display',serif;font-size:2.2rem;font-style:italic;
+    color:var(--text);margin:80px 0 32px;padding-bottom:16px;border-bottom:1px solid var(--border); text-align:center;}}
 .calendar{{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px; margin-top:32px;}}
 .cal-card{{background:var(--surface);border:1px solid var(--border);border-radius:8px;
            padding:20px;transition:all .2s ease; cursor:pointer; position:relative; overflow:hidden;}}
@@ -705,24 +725,29 @@ h2{{font-family:'Playfair Display',serif;font-size:1.8rem;font-style:italic;
 .cal-day{{font-size:15px;color:var(--text); font-weight:500; font-family:'Playfair Display',serif;}}
 .cal-meta{{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);margin-top:12px; display:flex; justify-content:space-between; align-items:center;}}
 .meta-tag{{padding:2px 6px; background:rgba(212,160,23,0.1); border-radius:3px; color:var(--amber-light);}}
+.latest-label{{font-family:'DM Mono',monospace; font-size:12px; color:var(--amber); text-transform:uppercase; letter-spacing:0.2em; margin-bottom:16px;}}
 </style>
 </head>
 <body>
 <div class="masthead">
-  <div class="masthead-sub">Archive & Calendar</div>
+  <div class="masthead-sub">Intelligence Briefing</div>
   <h1>Hacker <span>News</span></h1>
-  <div class="masthead-date">INTELLIGENT DAILY BRIEFINGS</div>
+  <div class="masthead-date">{date_str} · TOP {len(latest_stories)} · {latest_ranking.upper()}</div>
   <div class="masthead-rule"></div>
 </div>
-<div class="container" style="padding-bottom:100px">
-  <div class="hero">
-    <p>AI-powered deep analysis of Hacker News. Each report includes 400+ word technical summaries, 
-    community sentiment opinion clusters, and key technical highlights. 
-    Powered by <strong>{model_str}</strong>.</p>
+
+<div class="container">
+  <div style="margin-top:64px; text-align:center;">
+    <div class="latest-label">Latest Briefing</div>
   </div>
-  <h2>Daily Briefings</h2>
-  <div class="calendar" id="cal"></div>
+  {latest_sections}
+  
+  <div style="margin-top:120px;">
+    <h2>Archive & Calendar</h2>
+    <div class="calendar" id="cal"></div>
+  </div>
 </div>
+
 <div class="footer">
   <div class="container">
     <p>Updated daily via GitHub Actions · {model_str} via {provider_str}</p>
@@ -811,7 +836,7 @@ def run(target: date, ranking: str, n_stories: int):
     print(f"  ✔ {OUTPUT_DIR / filename}")
 
     manifest = update_manifest(target, filename, ranking, len(stories))
-    (OUTPUT_DIR / "index.html").write_text(build_index(manifest), encoding="utf-8")
+    (OUTPUT_DIR / "index.html").write_text(build_index(manifest, stories, target, ranking), encoding="utf-8")
     print("  ✔ index.html + manifest.json")
 
 
