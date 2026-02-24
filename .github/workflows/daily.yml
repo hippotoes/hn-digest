@@ -22,6 +22,10 @@ on:
         description: "Number of stories (default: 20)"
         required: false
         default: "20"
+      retention:
+        description: "Number of days to keep in archive (default: 30)"
+        required: false
+        default: "30"
 
 permissions:
   contents: write   # needed to push to gh-pages / commit generated files
@@ -71,9 +75,12 @@ jobs:
           if [ -z "$RANKING" ]; then RANKING="top"; fi
           STORIES="${{ github.event.inputs.stories }}"
           if [ -z "$STORIES" ]; then STORIES="20"; fi
+          RETENTION="${{ github.event.inputs.retention }}"
+          if [ -z "$RETENTION" ]; then RETENTION="30"; fi
           echo "date=$DATE"     >> $GITHUB_OUTPUT
           echo "ranking=$RANKING" >> $GITHUB_OUTPUT
           echo "stories=$STORIES" >> $GITHUB_OUTPUT
+          echo "retention=$RETENTION" >> $GITHUB_OUTPUT
 
       # ── 5. Generate digest ───────────────────────────────────────────────
       - name: Generate HN digest
@@ -84,7 +91,8 @@ jobs:
           python generate_daily.py \
             --date    "${{ steps.params.outputs.date }}"    \
             --ranking "${{ steps.params.outputs.ranking }}" \
-            --stories "${{ steps.params.outputs.stories }}"
+            --stories "${{ steps.params.outputs.stories }}" \
+            --retention "${{ steps.params.outputs.retention }}"
 
       # ── 6. Deploy to GitHub Pages ────────────────────────────────────────
       - name: Deploy

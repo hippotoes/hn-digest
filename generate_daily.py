@@ -1,18 +1,9 @@
 #!/usr/bin/env python3
 """
-HN Daily Digest Generator  ·  uses Gemini CLI (gemini -p)
+HN Daily Digest Generator - Multi-Provider Support
 ──────────────────────────────────────────────────────────────
 Fetches top HN stories via Algolia + Firebase APIs, then calls
-the `gemini` CLI for each story to produce:
-  • 300-word article summary with highlights
-  • Sentiment table based on real comment threads
-  • Topic categorisation (AI Fundamentals / AI Applications / Politics / Others)
-
-Usage:
-  python generate_daily.py                       # yesterday, best ranking
-  python generate_daily.py --date 2026-02-20
-  python generate_daily.py --ranking top
-  python generate_daily.py --stories 20
+AI (Gemini or DeepSeek) for each story to produce deep reports.
 """
 
 import os, sys, re, json, time, argparse, subprocess, textwrap, requests
@@ -130,9 +121,9 @@ def get_top_comments(item_id: int, max_top: int = 50, max_replies: int = 3) -> l
 
 def fetch_article(url: str, max_chars: int = 20_000) -> str:
     if not url:
-        return "[No article URL — likely an Ask/Show HN post]"
+        return "[No article URL - likely an Ask/Show HN post]"
     if url.lower().endswith(".pdf"):
-        return "[Article is a PDF — scraping not supported for binary files]"
+        return "[Article is a PDF - scraping not supported for binary files]"
     try:
         headers = {"User-Agent": "Mozilla/5.0 (compatible; HNDigest/1.0)"}
         r = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
@@ -148,7 +139,7 @@ def fetch_article(url: str, max_chars: int = 20_000) -> str:
         return f"[Article fetch failed: {e}]"
 
 
-# ── Gemini CLI ────────────────────────────────────────────────────────────────
+# ── AI API Calls ──────────────────────────────────────────────────────────────
 
 def call_deepseek(prompt: str) -> str:
     """Invoke DeepSeek API directly."""
@@ -214,7 +205,7 @@ ANALYSIS_SCHEMA = """{
     {
       "label":               "<2-4 word label>",
       "type":                "positive|negative|mixed|neutral|debate",
-      "description":         "<~100 words — describe this cohort, quote specific comment phrasing where visible>",
+      "description":         "<~100 words - describe this cohort, quote specific comment phrasing where visible>",
       "estimated_agreement": "~XX users"
     }
   ]
@@ -222,7 +213,7 @@ ANALYSIS_SCHEMA = """{
 
 
 def analyze_story(story: dict, article: str, comments: list) -> dict:
-    """Ask Gemini (via CLI) to produce a structured JSON analysis."""
+    """Ask AI to produce a structured JSON analysis."""
 
     comments_block = "\n\n".join(
         f"[{c['author']} score={c.get('score', 0)}]: {c['text']}"
@@ -231,11 +222,11 @@ def analyze_story(story: dict, article: str, comments: list) -> dict:
             for r in c.get("replies", [])
         )
         for c in comments[:25]
-    ) or "[No comments available — reason from article topic and HN norms]"
+    ) or "[No comments available - reason from article topic and HN norms]"
 
     prompt = textwrap.dedent(f"""
         You are writing a high-quality daily tech digest for a sophisticated engineering audience.
-        Analyse the Hacker News story below and return ONLY valid JSON — no markdown fences, no preamble.
+        Analyse the Hacker News story below and return ONLY valid JSON - no markdown fences, no preamble.
 
         ── STORY ─────────────────────────────────────────────────────────
         Title    : {story.get('title', '')}
@@ -259,7 +250,7 @@ def analyze_story(story: dict, article: str, comments: list) -> dict:
           inferred from upvote scores and reply counts in the comments block.
           If comments are sparse, say so and reason from known HN community patterns.
         • topic_category must be exactly one of the five enum values.
-        • Return ONLY the JSON object — nothing else.
+        • Return ONLY the JSON object - nothing else.
 
         JSON schema:
         {ANALYSIS_SCHEMA}
@@ -316,26 +307,11 @@ body{background:var(--bg);color:var(--text);font-family:'Source Serif 4',Georgia
 a{color:inherit;text-decoration:none}
 a:hover{opacity:.75}
 .masthead{border-bottom:1px solid var(--border);padding:28px 0 20px;text-align:center;background:var(--bg2);position:relative;overflow:hidden}
-.masthead::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 80% 60% at 50% 0%,rgba(212,160,23,.07) 0%,transparent 70%);pointer-events:none}
 .masthead-sub{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.3em;color:var(--amber);text-transform:uppercase;margin-bottom:10px}
 .masthead h1{font-family:'Playfair Display',serif;font-size:clamp(2rem,5vw,3.8rem);font-weight:900;letter-spacing:-.02em;color:var(--text);line-height:1}
 .masthead h1 span{color:var(--amber)}
 .masthead-date{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.15em;color:var(--text-dim);margin-top:10px}
 .masthead-rule{width:60px;height:2px;background:var(--amber);margin:14px auto 0}
-.controls{background:var(--bg3);border-bottom:1px solid var(--border);padding:10px 0;position:sticky;top:0;z-index:100}
-.controls-inner{max-width:1100px;margin:0 auto;padding:0 24px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
-.ctrl-label{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.2em;color:var(--text-muted);text-transform:uppercase;white-space:nowrap}
-.ctrl-select{font-family:'DM Mono',monospace;font-size:12px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:5px 10px;cursor:pointer;outline:none}
-.ctrl-select:hover{border-color:var(--amber)}
-.toc-sep{flex:1}
-.toc{display:flex;gap:6px;flex-wrap:wrap}
-.toc a{font-family:'DM Mono',monospace;font-size:11px;padding:4px 10px;border-radius:3px;transition:opacity .15s}
-.toc a.ai-fund{color:#e87a5a;border:1px solid rgba(196,92,58,.3)}
-.toc a.ai-app{color:#7ec890;border:1px solid rgba(90,158,111,.3)}
-.toc a.tech{color:var(--teal);border:1px solid rgba(74,181,168,.3)}
-.toc a.pol{color:#7ab8e0;border:1px solid rgba(74,138,181,.3)}
-.toc a.others{color:var(--text-dim);border:1px solid var(--border)}
-.toc a:hover{opacity:.7}
 .container{max-width:1100px;margin:0 auto;padding:0 24px}
 .section-header{display:flex;align-items:center;gap:16px;margin:48px 0 24px}
 .section-badge{font-family:'DM Mono',monospace;font-size:10px;font-weight:500;letter-spacing:.25em;text-transform:uppercase;padding:5px 14px;border-radius:3px;white-space:nowrap}
@@ -394,7 +370,7 @@ a:hover{opacity:.75}
 .cmts-mono{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-dim);white-space:nowrap}
 .footer{border-top:1px solid var(--border);margin-top:64px;padding:28px 0;text-align:center}
 .footer p{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.1em;color:var(--text-muted)}
-@media(max-width:640px){.controls-inner{gap:8px}}"""
+@media(max-width:640px){.nav-inner{gap:8px}}"""
 
 
 # ── HTML Builders ─────────────────────────────────────────────────────────────
@@ -433,7 +409,7 @@ def story_card_html(rank: int, story: dict) -> str:
     if rows:
         sent_html = (
             f'<div class="sentiment-section">'
-            f'<div class="sentiment-title">Comment Sentiment Analysis — {ncmts} comments</div>'
+            f'<div class="sentiment-title">Comment Sentiment Analysis - {ncmts} comments</div>'
             f'<table class="sentiment-table">'
             f'<thead><tr><th>Sentiment</th><th>Community View</th><th>Agree</th></tr></thead>'
             f'<tbody>{rows}</tbody></table></div>'
@@ -469,7 +445,6 @@ def others_table_html(stories: list) -> str:
 
         # Build full summary (~200 words)
         para = " ".join(a.get("summary_paragraphs", []))
-        # Complete summary logic (try to keep it near 1200 chars for ~200 words)
         summary_text = escape(para[:1200] + "..." if len(para) > 1200 else para)
 
         # Build inline sentiment badges
@@ -479,8 +454,7 @@ def others_table_html(stories: list) -> str:
             slabel = escape(s.get("label", ""))
             sdesc = escape(s.get("description", ""))
             agree = escape(str(s.get("estimated_agreement", "")))
-            # Color based on sentiment type
-            color = "#5a5446" # default
+            color = "#5a5446"
             if stype == "positive": color = "#5a9e6f"
             elif stype == "negative": color = "#c45c3a"
             elif stype == "mixed": color = "#d4a017"
@@ -512,7 +486,7 @@ def others_table_html(stories: list) -> str:
 <div class="story-card">
   <div class="story-body" style="padding:18px 26px">
     <p style="font-size:14px;color:var(--text-dim);margin-bottom:18px">
-      Remaining stories — comprehensive digest table.
+      Remaining stories - comprehensive digest table.
     </p>
     <div class="others-table-wrap">
       <table class="others-table">
@@ -524,37 +498,86 @@ def others_table_html(stories: list) -> str:
 </div>"""
 
 
-# ── Manifest ──────────────────────────────────────────────────────────────────
+# ── UI Helpers ────────────────────────────────────────────────────────────────
+
+def get_navbar_html(manifest: dict, current_file: str = "") -> str:
+    """Generate a consistent navigation bar for all pages."""
+    date_opts = "\n".join(
+        f'<option value="{e["file"]}" {"selected" if e["file"] == current_file else ""}>{e["date"]} ({e["ranking"].upper()})</option>'
+        for e in manifest.get("entries", [])
+    )
+    
+    return f"""
+<div class="nav-controls">
+  <div class="nav-inner">
+    <div class="toc">
+      <a href="./index.html" class="home-link" style="margin-right:12px; border:1px solid var(--amber); color:var(--amber);">HOME</a>
+      <a href="#ai-fund" class="ai-fund">AI Fundamentals</a>
+      <a href="#ai-app"  class="ai-app">AI Applications</a>
+      <a href="#tech"    class="tech">Tech</a>
+      <a href="#politics" class="pol">Politics</a>
+      <a href="#others"  class="others">Others</a>
+    </div>
+    <div style="display:flex; gap:16px; align-items:center;">
+      <div class="ctrl-group">
+        <span class="ctrl-label">Font</span>
+        <select class="ctrl-select" onchange="document.body.style.fontSize = this.value">
+          <option value="14px">Small</option>
+          <option value="16px" selected>Medium</option>
+          <option value="18px">Large</option>
+          <option value="20px">X-Large</option>
+        </select>
+      </div>
+      <div class="ctrl-group">
+        <span class="ctrl-label">History</span>
+        <select class="ctrl-select" onchange="window.location.href=this.value">
+          <option value="#">Select Date...</option>
+          {date_opts}
+        </select>
+      </div>
+    </div>
+  </div>
+</div>"""
+
+# ── Manifest & Retention ──────────────────────────────────────────────────────
 
 def load_manifest() -> dict:
     if MANIFEST.exists():
-        try:
-            return json.loads(MANIFEST.read_text())
-        except Exception:
-            pass
+        try: return json.loads(MANIFEST.read_text())
+        except: pass
     return {"entries": [], "files": []}
-
 
 def save_manifest(m: dict):
     MANIFEST.write_text(json.dumps(m, indent=2))
 
-
-def update_manifest(target: date, filename: str, ranking: str, n: int) -> dict:
+def update_manifest(target: date, filename: str, ranking: str, n: int, retention: int = 30) -> dict:
     m = load_manifest()
     date_iso = target.isoformat()
-    m["entries"] = [e for e in m["entries"]
-                    if not (e["date"] == date_iso and e["ranking"] == ranking)]
+    # Remove existing entry for same day/rank
+    m["entries"] = [e for e in m["entries"] if not (e["date"] == date_iso and e["ranking"] == ranking)]
+    # Insert new entry
     m["entries"].insert(0, {
         "date": date_iso, "file": filename,
         "ranking": ranking, "story_count": n,
     })
     m["entries"].sort(key=lambda e: e["date"], reverse=True)
+    
+    # Enforce retention
+    if retention > 0 and len(m["entries"]) > retention:
+        to_delete = m["entries"][retention:]
+        m["entries"] = m["entries"][:retention]
+        # Clean up physical files
+        for entry in to_delete:
+            fpath = OUTPUT_DIR / entry["file"]
+            if fpath.exists() and entry["file"] != "index.html":
+                fpath.unlink()
+                print(f"  Cleanup: Deleted {entry['file']} (retention limit)")
+
     m["files"] = [e["file"] for e in m["entries"]]
     save_manifest(m)
     return m
 
-
-# ── Page Template ─────────────────────────────────────────────────────────────
+# ── Page Templates ─────────────────────────────────────────────────────────────
 
 def build_page(target: date, stories: list, ranking: str, manifest: dict) -> str:
     cats: dict[str, list] = {
@@ -562,44 +585,22 @@ def build_page(target: date, stories: list, ranking: str, manifest: dict) -> str
     }
     for i, s in enumerate(stories):
         cat = s.get("analysis", {}).get("topic_category", "Others")
-        if cat not in cats:
-            cat = "Others"
+        if cat not in cats: cat = "Others"
         cats[cat].append((i + 1, s))
 
-    # Section HTML
     sections = ""
     for cat, items in cats.items():
-        if not items:
-            continue
-        sid  = SECTION_ID[cat]
-        bid  = BADGE_CLASS[cat]
-        sections += (
-            f'<div class="section-header" id="{sid}">'
-            f'<span class="section-badge {bid}">{escape(cat)}</span>'
-            f'<div class="section-line"></div></div>\n'
-        )
-        if cat == "Others":
-            sections += others_table_html(items)
+        if not items: continue
+        sid, bid = SECTION_ID[cat], BADGE_CLASS[cat]
+        sections += f'<div class="section-header" id="{sid}"><span class="section-badge {bid}">{escape(cat)}</span><div class="section-line"></div></div>\n'
+        if cat == "Others": sections += others_table_html(items)
         else:
-            for rank, story in items:
-                sections += story_card_html(rank, story)
+            for rank, story in items: sections += story_card_html(rank, story)
 
     date_iso  = target.isoformat()
     date_str  = target.strftime("%A, %B %d, %Y").upper()
-
-    # Date selector — include current date even if not yet in manifest
-    all_dates = [date_iso] + [e["date"] for e in manifest.get("entries", [])
-                               if e["date"] != date_iso]
-    date_opts = "\n".join(
-        f'<option value="{d}"{"  selected" if d == date_iso else ""}>{d}</option>'
-        for d in dict.fromkeys(all_dates)   # preserve order, dedup
-    )
-
-    ranking_opts = "\n".join(
-        f'<option value="{r}"{"  selected" if r == ranking else ""}>{r.upper()}</option>'
-        for r in ["best", "top", "new", "ask", "show"]
-    )
-
+    filename  = f"{date_iso}{'-' + ranking if ranking != 'best' else ''}.html"
+    navbar_html = get_navbar_html(manifest, current_file=filename)
     manifest_json = json.dumps(manifest)
 
     return f"""<!DOCTYPE html>
@@ -607,81 +608,43 @@ def build_page(target: date, stories: list, ranking: str, manifest: dict) -> str
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>HN Digest · {date_iso}</title>
+<title>HN Digest - {date_iso}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900;1,700&family=Source+Serif+4:ital,wght@0,300;0,400;0,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
-<style>{PAGE_CSS}</style>
+<style>
+{PAGE_CSS}
+.nav-controls{{background:var(--bg3); border-bottom:1px solid var(--border); padding:12px 0; position:sticky; top:0; z-index:1000;}}
+.nav-inner{{max-width:1100px; margin:0 auto; padding:0 24px; display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap;}}
+.ctrl-group{{display:flex; align-items:center; gap:8px;}}
+</style>
 </head>
 <body>
-
 <div class="masthead">
   <div class="masthead-sub">Daily Intelligence Brief</div>
   <h1>Hacker <span>News</span></h1>
-  <div class="masthead-date">{date_str} · TOP {len(stories)} · RANKED BY {ranking.upper()}</div>
+  <div class="masthead-date">{date_str} - TOP {len(stories)} - {ranking.upper()}</div>
   <div class="masthead-rule"></div>
 </div>
-
-<div class="controls">
-  <div class="controls-inner">
-    <span class="ctrl-label">Date</span>
-    <select class="ctrl-select" id="dateSelect" onchange="navigate()">
-      {date_opts}
-    </select>
-    <span class="ctrl-label">Ranking</span>
-    <select class="ctrl-select" id="rankSelect" onchange="navigate()">
-      {ranking_opts}
-    </select>
-    <div class="toc-sep"></div>
-    <div class="toc">
-      <a href="#ai-fund" class="ai-fund">AI Fundamentals</a>
-      <a href="#ai-app"  class="ai-app">AI Applications</a>
-      <a href="#tech"    class="tech">Tech</a>
-      <a href="#politics" class="pol">Politics</a>
-      <a href="#others"  class="others">Others</a>
-    </div>
-  </div>
-</div>
-
-<div class="container">
-{sections}
-</div>
-
+{navbar_html}
+<div class="container">{sections}</div>
 <div class="footer">
   <div class="container">
-    <p>Data: HN Algolia Search + Firebase APIs · Summaries: {CONFIG["deepseek_model"] if CONFIG["primary_provider"] == "deepseek" else CONFIG["gemini_model"]} via {CONFIG["primary_provider"].capitalize()}</p>
+    <p>Data: HN Algolia Search + Firebase APIs - Summaries: {CONFIG["deepseek_model"] if CONFIG["primary_provider"] == "deepseek" else CONFIG["gemini_model"]} via {CONFIG["primary_provider"].capitalize()}</p>
     <p style="margin-top:6px;font-size:10px">
       Sentiment analysis uses real HN comment threads fetched at generation time.
       Agreement estimates are inferred from comment upvote distribution and reply volume.
     </p>
   </div>
 </div>
-
-<script>
-const MANIFEST = {manifest_json};
-function navigate() {{
-  const d = document.getElementById('dateSelect').value;
-  const r = document.getElementById('rankSelect').value;
-  const suffix = r !== 'best' ? '-' + r : '';
-  const target = d + suffix + '.html';
-  const files  = MANIFEST.files || [];
-  if (files.includes(target) || target === window.location.pathname.split('/').pop()) {{
-    window.location.href = target;
-  }} else {{
-    // fallback: try the best-ranking page for that date
-    window.location.href = d + '.html';
-  }}
-}}
-</script>
+<script>const MANIFEST = {manifest_json};</script>
 </body>
 </html>"""
 
 
 def build_index(manifest: dict, latest_stories: list, latest_target: date, latest_ranking: str) -> str:
-    cal_entries = json.dumps(manifest.get("entries", []))
     model_str = CONFIG["deepseek_model"] if CONFIG["primary_provider"] == "deepseek" else CONFIG["gemini_model"]
     provider_str = CONFIG["primary_provider"].capitalize()
     
-    # Category Buttons logic
     cats: dict[str, list] = {
         "AI Fundamentals": [], "AI Applications": [], "Tech": [], "Politics": [], "Others": []
     }
@@ -700,12 +663,7 @@ def build_index(manifest: dict, latest_stories: list, latest_target: date, lates
             for rank, story in items: latest_sections += story_card_html(rank, story)
 
     date_str = latest_target.strftime("%A, %B %d, %Y").upper()
-    
-    # Date Dropdown Options
-    date_opts = "\n".join(
-        f'<option value="{e["file"]}">{e["date"]} ({e["ranking"].upper()})</option>'
-        for e in manifest.get("entries", [])
-    )
+    navbar_html = get_navbar_html(manifest, current_file="index.html")
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -717,10 +675,9 @@ def build_index(manifest: dict, latest_stories: list, latest_target: date, lates
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900&family=Source+Serif+4:ital,wght@0,300;0,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 {PAGE_CSS}
-.hero{{max-width:800px;margin:48px auto 0; text-align:center;}}
-.hero p{{font-size:18px;color:var(--text-dim);font-weight:300;line-height:1.7}}
 .nav-controls{{background:var(--bg3); border-bottom:1px solid var(--border); padding:12px 0; position:sticky; top:0; z-index:1000;}}
-.nav-inner{{max-width:1100px; margin:0 auto; padding:0 24px; display:flex; justify-content:space-between; align-items:center;}}
+.nav-inner{{max-width:1100px; margin:0 auto; padding:0 24px; display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap;}}
+.ctrl-group{{display:flex; align-items:center; gap:8px;}}
 .latest-label{{font-family:'DM Mono',monospace; font-size:12px; color:var(--amber); text-transform:uppercase; letter-spacing:0.2em; margin-bottom:16px;}}
 </style>
 </head>
@@ -728,39 +685,17 @@ def build_index(manifest: dict, latest_stories: list, latest_target: date, lates
 <div class="masthead">
   <div class="masthead-sub">Intelligence Briefing</div>
   <h1>Hacker <span>News</span></h1>
-  <div class="masthead-date">{date_str} · TOP {len(latest_stories)} · {latest_ranking.upper()}</div>
+  <div class="masthead-date">{date_str} - TOP {len(latest_stories)} - {latest_ranking.upper()}</div>
   <div class="masthead-rule"></div>
 </div>
-
-<div class="nav-controls">
-  <div class="nav-inner">
-    <div class="toc">
-      <a href="#ai-fund" class="ai-fund">AI Fundamentals</a>
-      <a href="#ai-app"  class="ai-app">AI Applications</a>
-      <a href="#tech"    class="tech">Tech</a>
-      <a href="#politics" class="pol">Politics</a>
-      <a href="#others"  class="others">Others</a>
-    </div>
-    <div>
-      <span style="font-family:'DM Mono',monospace; font-size:10px; color:var(--text-muted); text-transform:uppercase; margin-right:8px;">History</span>
-      <select class="ctrl-select" onchange="window.location.href=this.value">
-        <option value="#">Select Date...</option>
-        {date_opts}
-      </select>
-    </div>
-  </div>
-</div>
-
+{navbar_html}
 <div class="container">
-  <div style="margin-top:48px; text-align:center;">
-    <div class="latest-label">Latest Briefing</div>
-  </div>
+  <div style="margin-top:48px; text-align:center;"><div class="latest-label">Latest Briefing</div></div>
   {latest_sections}
 </div>
-
 <div class="footer">
   <div class="container">
-    <p>Updated daily via GitHub Actions · {model_str} via {provider_str}</p>
+    <p>Updated daily via GitHub Actions - {model_str} via {provider_str}</p>
   </div>
 </div>
 </body>
@@ -769,16 +704,16 @@ def build_index(manifest: dict, latest_stories: list, latest_target: date, lates
 
 # ── Entry Point ───────────────────────────────────────────────────────────────
 
-def run(target: date, ranking: str, n_stories: int):
-    print(f"  Date={target}  Ranking={ranking}  Stories={n_stories}")
+def run(target: date, ranking: str, n_stories: int, retention: int = 30):
+    print(f"  Date={target}  Ranking={ranking}  Stories={n_stories}  Retention={retention}")
 
-    print("  Fetching story list…")
+    print("  Fetching story list...")
     stories = get_stories_for_date(target, n=n_stories, ranking=ranking)
     if not stories:
-        print("  ⚠ No stories found — skipping.")
+        print("  ⚠ No stories found - skipping.")
         return
 
-    print(f"  Found {len(stories)} stories. Starting analysis…")
+    print(f"  Found {len(stories)} stories. Starting analysis...")
     for i, story in enumerate(stories):
         title = story.get("title", "")[:65]
         print(f"  [{i+1:02}/{len(stories)}] {title}")
@@ -809,6 +744,7 @@ def run(target: date, ranking: str, n_stories: int):
     suffix   = f"-{ranking}" if ranking != "best" else ""
     filename = f"{target.isoformat()}{suffix}.html"
     manifest = load_manifest()
+    
     # Add current date to date selector before building the page
     tmp_manifest = dict(manifest)
     tmp_manifest["entries"] = (
@@ -824,7 +760,7 @@ def run(target: date, ranking: str, n_stories: int):
     (OUTPUT_DIR / filename).write_text(html, encoding="utf-8")
     print(f"  ✔ {OUTPUT_DIR / filename}")
 
-    manifest = update_manifest(target, filename, ranking, len(stories))
+    manifest = update_manifest(target, filename, ranking, len(stories), retention=retention)
     (OUTPUT_DIR / "index.html").write_text(build_index(manifest, stories, target, ranking), encoding="utf-8")
     print("  ✔ index.html + manifest.json")
 
@@ -834,11 +770,12 @@ def main():
     ap.add_argument("--date",    default=None)
     ap.add_argument("--ranking", default="top", choices=list(RANKING_TAGS.keys()))
     ap.add_argument("--stories", default=20, type=int)
+    ap.add_argument("--retention", default=30, type=int, help="Number of days to keep in archive")
     args = ap.parse_args()
 
     target = (date.fromisoformat(args.date) if args.date
               else date.today() - timedelta(days=1))
-    run(target, args.ranking, args.stories)
+    run(target, args.ranking, args.stories, args.retention)
 
 
 if __name__ == "__main__":
