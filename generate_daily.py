@@ -20,12 +20,22 @@ from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
 from html import escape
 from concurrent.futures import ThreadPoolExecutor
+import google.generativeai as genai
 
 # ── Model & Paths ─────────────────────────────────────────────────────────────
 
-# Fallback chain for Free Tier daily quota management
-MODEL_CHAIN = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-flash-8b"]
+# Fallback chain for direct API calls
+MODEL_CHAIN = [
+    "gemini-2.0-flash", 
+    "gemini-1.5-flash", 
+    "gemini-1.5-flash-8b",
+    "gemini-1.5-pro"
+]
 CURRENT_MODEL_INDEX = 0
+
+# Configure SDK
+if "GEMINI_API_KEY" in os.environ:
+    genai.configure(api_key=os.environ["GEMINI_API_KEY"])
 
 OUTPUT_DIR = Path("site")
 OUTPUT_DIR.mkdir(exist_ok=True)
@@ -141,50 +151,40 @@ def fetch_article(url: str, max_chars: int = 20_000) -> str:
 
 def call_gemini(prompt: str) -> str:
     """
-    Invoke `gemini` CLI with automatic fallback if daily quota is exhausted.
+    Invoke Gemini API directly using the SDK to ensure exactly ONE request.
+    Handles daily quota exhaustion by falling back through the model chain.
     """
     global CURRENT_MODEL_INDEX
     
     while CURRENT_MODEL_INDEX < len(MODEL_CHAIN):
-        model = MODEL_CHAIN[CURRENT_MODEL_INDEX]
-        proc = subprocess.run(
-            [
-                "gemini",
-                "--model",         model,
-                "--output-format", "json",
-                "-p",              prompt,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=180,
-        )
-
-        if proc.returncode == 0:
-            # Success! Parse and return.
-            try:
-                outer = json.loads(proc.stdout)
-                if isinstance(outer, dict) and "response" in outer:
-                    return outer["response"].strip()
-                return proc.stdout.strip()
-            except:
-                return proc.stdout.strip()
-
-        # Handle Errors
-        stderr = proc.stderr.lower()
-        if "quota" in stderr or "exhausted" in stderr:
-            print(f"         ⚠ Quota exhausted for {model}. Falling back...")
-            CURRENT_MODEL_INDEX += 1
-            if CURRENT_MODEL_INDEX < len(MODEL_CHAIN):
-                time.sleep(2) # brief pause before fallback retry
+        model_name = MODEL_CHAIN[CURRENT_MODEL_INDEX]
+        try:
+            model = genai.GenerativeModel(model_name)
+            response = model.generate_content(
+                prompt,
+                generation_config=genai.types.GenerationConfig(
+                    temperature=0.2,
+                )
+            )
+            return response.text.strip()
+            
+        except Exception as e:
+            err_msg = str(e).lower()
+            if "429" in err_msg or "quota" in err_msg or "exhausted" in err_msg:
+                print(f"         ⚠ Quota exhausted for {model_name}. Falling back...")
+                CURRENT_MODEL_INDEX += 1
+                if CURRENT_MODEL_INDEX < len(MODEL_CHAIN):
+                    time.sleep(2)
+                    continue
+            
+            # If it's a 404 or other critical error, try next model or raise
+            if "404" in err_msg or "not found" in err_msg:
+                CURRENT_MODEL_INDEX += 1
                 continue
-            else:
-                raise RuntimeError("All models in fallback chain exhausted their daily quota.")
-        else:
-            # Some other error (not quota)
-            err_msg = proc.stderr.strip()[:400]
-            raise RuntimeError(f"gemini CLI ({model}) exited {proc.returncode}: {err_msg}")
+                
+            raise RuntimeError(f"Gemini API error ({model_name}): {e}")
 
-    raise RuntimeError("Fallback chain exhausted.")
+    raise RuntimeError("All models in fallback chain exhausted.")
 
 
 # ── Analysis Schema & Prompt ───────────────────────────────────────────────────
