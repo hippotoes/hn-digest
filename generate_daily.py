@@ -55,14 +55,17 @@ RANKING_TAGS = {
 }
 
 
-def get_stories_for_date(target: date, n: int = 20, ranking: str = "best") -> list:
-    start = int(datetime(target.year, target.month, target.day,
-                         tzinfo=timezone.utc).timestamp())
-    end   = start + 86400
+def get_stories_for_date(target: date, n: int = 20, ranking: str = "top") -> list:
+    # Widen window to 48 hours to capture stories created late the previous day 
+    # that are "top" on the target day.
+    end   = int(datetime(target.year, target.month, target.day,
+                         tzinfo=timezone.utc).timestamp()) + 86400
+    start = end - (86400 * 2) 
+    
     params = {
         "tags":           RANKING_TAGS.get(ranking, "front_page"),
         "numericFilters": f"created_at_i>{start},created_at_i<{end}",
-        "hitsPerPage":    n * 2,
+        "hitsPerPage":    100, # Fetch more to ensure we have enough after deduping
     }
     try:
         resp = requests.get(HN_ALGOLIA, params=params, timeout=20)
