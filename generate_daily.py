@@ -54,16 +54,18 @@ RANKING_TAGS = {
 
 
 def get_stories_for_date(target: date, n: int = 20, ranking: str = "top") -> list:
-    start = int(datetime(target.year, target.month, target.day,
-                         tzinfo=timezone.utc).timestamp())
-    end   = start + 86400
+    """Fetch top stories for a specific date using a more robust search."""
+    start_ts = int(datetime(target.year, target.month, target.day, tzinfo=timezone.utc).timestamp())
+    end_ts   = start_ts + 86400
+    
     params = {
         "tags":           RANKING_TAGS.get(ranking, "front_page"),
-        "numericFilters": f"created_at_i>{start},created_at_i<{end}",
-        "hitsPerPage":    n * 2,
+        "numericFilters": f"created_at_i>={start_ts},created_at_i<{end_ts}",
+        "hitsPerPage":    100, 
     }
+    
     try:
-        resp = requests.get(HN_ALGOLIA, params=params, timeout=20)
+        resp = requests.get(f"{HN_ALGOLIA}", params=params, timeout=20)
         resp.raise_for_status()
         hits = resp.json().get("hits", [])
     except Exception as e:
@@ -77,6 +79,7 @@ def get_stories_for_date(target: date, n: int = 20, ranking: str = "top") -> lis
             seen.add(oid)
             deduped.append(h)
 
+    # Final sort by points to ensure top stories
     deduped.sort(key=lambda h: h.get("points", 0), reverse=True)
     return deduped[:n]
 
@@ -675,11 +678,10 @@ function navigate() {{
 
 def build_index(manifest: dict, latest_stories: list, latest_target: date, latest_ranking: str) -> str:
     cal_entries = json.dumps(manifest.get("entries", []))
-    # Active model/provider for footer
     model_str = CONFIG["deepseek_model"] if CONFIG["primary_provider"] == "deepseek" else CONFIG["gemini_model"]
     provider_str = CONFIG["primary_provider"].capitalize()
     
-    # Generate HTML for the latest stories (reuse section logic)
+    # Category Buttons logic
     cats: dict[str, list] = {
         "AI Fundamentals": [], "AI Applications": [], "Tech": [], "Politics": [], "Others": []
     }
@@ -698,6 +700,12 @@ def build_index(manifest: dict, latest_stories: list, latest_target: date, lates
             for rank, story in items: latest_sections += story_card_html(rank, story)
 
     date_str = latest_target.strftime("%A, %B %d, %Y").upper()
+    
+    # Date Dropdown Options
+    date_opts = "\n".join(
+        f'<option value="{e["file"]}">{e["date"]} ({e["ranking"].upper()})</option>'
+        for e in manifest.get("entries", [])
+    )
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -711,20 +719,8 @@ def build_index(manifest: dict, latest_stories: list, latest_target: date, lates
 {PAGE_CSS}
 .hero{{max-width:800px;margin:48px auto 0; text-align:center;}}
 .hero p{{font-size:18px;color:var(--text-dim);font-weight:300;line-height:1.7}}
-h2{{font-family:'Playfair Display',serif;font-size:2.2rem;font-style:italic;
-    color:var(--text);margin:80px 0 32px;padding-bottom:16px;border-bottom:1px solid var(--border); text-align:center;}}
-.calendar{{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px; margin-top:32px;}}
-.cal-card{{background:var(--surface);border:1px solid var(--border);border-radius:8px;
-           padding:20px;transition:all .2s ease; cursor:pointer; position:relative; overflow:hidden;}}
-.cal-card::after{{content:''; position:absolute; top:0; left:0; width:100%; height:4px; background:var(--amber); opacity:0; transition:opacity .2s;}}
-.cal-card:hover{{border-color:var(--amber);transform:translateY(-4px); background:var(--bg3);}}
-.cal-card:hover::after{{opacity:1;}}
-.cal-card a{{display:block;color:inherit; text-decoration:none;}}
-.cal-date{{font-family:'DM Mono',monospace;font-size:12px;color:var(--amber);
-            letter-spacing:.1em;margin-bottom:8px; font-weight:600;}}
-.cal-day{{font-size:15px;color:var(--text); font-weight:500; font-family:'Playfair Display',serif;}}
-.cal-meta{{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);margin-top:12px; display:flex; justify-content:space-between; align-items:center;}}
-.meta-tag{{padding:2px 6px; background:rgba(212,160,23,0.1); border-radius:3px; color:var(--amber-light);}}
+.nav-controls{{background:var(--bg3); border-bottom:1px solid var(--border); padding:12px 0; position:sticky; top:0; z-index:1000;}}
+.nav-inner{{max-width:1100px; margin:0 auto; padding:0 24px; display:flex; justify-content:space-between; align-items:center;}}
 .latest-label{{font-family:'DM Mono',monospace; font-size:12px; color:var(--amber); text-transform:uppercase; letter-spacing:0.2em; margin-bottom:16px;}}
 </style>
 </head>
@@ -736,16 +732,30 @@ h2{{font-family:'Playfair Display',serif;font-size:2.2rem;font-style:italic;
   <div class="masthead-rule"></div>
 </div>
 
+<div class="nav-controls">
+  <div class="nav-inner">
+    <div class="toc">
+      <a href="#ai-fund" class="ai-fund">AI Fundamentals</a>
+      <a href="#ai-app"  class="ai-app">AI Applications</a>
+      <a href="#tech"    class="tech">Tech</a>
+      <a href="#politics" class="pol">Politics</a>
+      <a href="#others"  class="others">Others</a>
+    </div>
+    <div>
+      <span style="font-family:'DM Mono',monospace; font-size:10px; color:var(--text-muted); text-transform:uppercase; margin-right:8px;">History</span>
+      <select class="ctrl-select" onchange="window.location.href=this.value">
+        <option value="#">Select Date...</option>
+        {date_opts}
+      </select>
+    </div>
+  </div>
+</div>
+
 <div class="container">
-  <div style="margin-top:64px; text-align:center;">
+  <div style="margin-top:48px; text-align:center;">
     <div class="latest-label">Latest Briefing</div>
   </div>
   {latest_sections}
-  
-  <div style="margin-top:120px;">
-    <h2>Archive & Calendar</h2>
-    <div class="calendar" id="cal"></div>
-  </div>
 </div>
 
 <div class="footer">
@@ -753,27 +763,6 @@ h2{{font-family:'Playfair Display',serif;font-size:2.2rem;font-style:italic;
     <p>Updated daily via GitHub Actions · {model_str} via {provider_str}</p>
   </div>
 </div>
-<script>
-const entries = {cal_entries};
-const cal = document.getElementById('cal');
-entries.forEach(e => {{
-  const d  = new Date(e.date + 'T12:00:00Z');
-  const wd = d.toLocaleDateString('en-US', {{weekday:'long', timeZone:'UTC'}});
-  const pr = d.toLocaleDateString('en-US', {{month:'short', day:'numeric', year:'numeric', timeZone:'UTC'}});
-  const div = document.createElement('div');
-  div.className = 'cal-card';
-  div.onclick = () => window.location.href = e.file;
-  div.innerHTML = `
-    <div class="cal-date">${{e.date}}</div>
-    <div class="cal-day">${{wd}}</div>
-    <div style="font-size:12px; color:var(--text-dim); margin-top:4px;">${{pr}}</div>
-    <div class="cal-meta">
-      <span>${{e.story_count}} Stories</span>
-      <span class="meta-tag">${{e.ranking.toUpperCase()}}</span>
-    </div>`;
-  cal.appendChild(div);
-}});
-</script>
 </body>
 </html>"""
 
