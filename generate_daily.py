@@ -547,31 +547,50 @@ def save_manifest(m: dict):
 def update_manifest(target: date, filename: str, ranking: str, n: int, retention: int = 30) -> dict:
     m = load_manifest()
     
+    # 1. Identify all physical report files (exclude index.html)
+    existing_files = {f.name for f in OUTPUT_DIR.glob("*.html") if f.name != "index.html"}
+    
+    # 2. Sync manifest with disk: Keep entries only if the file exists
+    current_entries = [e for e in m["entries"] if e["file"] in existing_files]
+    
+    # 3. Add/Update the current run's entry
     if target and filename:
         date_iso = target.isoformat()
-        # Remove existing entry for same day/rank
-        m["entries"] = [e for e in m["entries"] if not (e["date"] == date_iso and e["ranking"] == ranking)]
-        # Insert new entry
-        m["entries"].insert(0, {
+        # Remove existing entry for same day/rank to avoid duplicates
+        current_entries = [e for e in current_entries if not (e["date"] == date_iso and e["ranking"] == ranking)]
+        current_entries.insert(0, {
             "date": date_iso, "file": filename,
             "ranking": ranking, "story_count": n,
         })
     
-    m["entries"].sort(key=lambda e: e["date"], reverse=True)
+    # 4. Sort by date (descending)
+    current_entries.sort(key=lambda e: e["date"], reverse=True)
     
-    # Enforce retention
-    if retention > 0 and len(m["entries"]) > retention:
-        to_keep = m["entries"][:retention]
-        to_delete = m["entries"][retention:]
-        m["entries"] = to_keep
-        # Clean up physical files
+    # 5. Enforce retention: Prune manifest and delete physical files
+    if retention > 0 and len(current_entries) > retention:
+        to_keep = current_entries[:retention]
+        to_delete = current_entries[retention:]
+        
+        # Clean up physical files for entries being removed
         for entry in to_delete:
             fpath = OUTPUT_DIR / entry["file"]
-            if fpath.exists() and entry["file"] != "index.html":
+            if fpath.exists():
                 fpath.unlink()
                 print(f"  Cleanup: Deleted {entry['file']} (retention limit)")
+        
+        # Also clean up any orphan HTML files not tracked in the 'to_keep' list
+        keep_filenames = {e["file"] for e in to_keep}
+        for fname in existing_files:
+            if fname not in keep_filenames and (not filename or fname != filename):
+                fpath = OUTPUT_DIR / fname
+                if fpath.exists():
+                    fpath.unlink()
+                    print(f"  Cleanup: Deleted orphan file {fname}")
+        
+        current_entries = to_keep
 
-    m["files"] = [e["file"] for e in m["entries"]]
+    m["entries"] = current_entries
+    m["files"] = [e["file"] for e in current_entries]
     save_manifest(m)
     return m
 
