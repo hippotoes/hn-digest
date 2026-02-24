@@ -1,29 +1,31 @@
 #!/usr/bin/env python3
 """
-HN Daily Digest Generator  ·  uses Claude Code CLI (claude -p)
+HN Daily Digest Generator - Multi-Provider Support
 ──────────────────────────────────────────────────────────────
 Fetches top HN stories via Algolia + Firebase APIs, then calls
-the `claude` CLI for each story to produce:
-  • 300-word article summary with highlights
-  • Sentiment table based on real comment threads
-  • Topic categorisation (AI Fundamentals / AI Applications / Politics / Others)
-
-Usage:
-  python generate_daily.py                       # yesterday, best ranking
-  python generate_daily.py --date 2026-02-20
-  python generate_daily.py --ranking top
-  python generate_daily.py --stories 20
+AI (Gemini or DeepSeek) for each story to produce deep reports.
 """
 
 import os, sys, re, json, time, argparse, subprocess, textwrap, requests
 from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
 from html import escape
+from concurrent.futures import ThreadPoolExecutor
 
-# ── Model & Paths ─────────────────────────────────────────────────────────────
+# ── Configuration ─────────────────────────────────────────────────────────────
 
-CLAUDE_MODEL = "claude-sonnet-4-6"     # Sonnet 4.6 — fast, cost-effective
+def load_config():
+    conf_path = Path("config.json")
+    if conf_path.exists():
+        return json.loads(conf_path.read_text())
+    return {
+        "primary_provider": "gemini",
+        "gemini_model": "gemini-2.0-flash",
+        "deepseek_model": "deepseek-reasoner",
+        "deepseek_api_base": "https://api.deepseek.com"
+    }
 
+CONFIG = load_config()
 OUTPUT_DIR = Path("site")
 OUTPUT_DIR.mkdir(exist_ok=True)
 MANIFEST   = OUTPUT_DIR / "manifest.json"
@@ -42,17 +44,19 @@ RANKING_TAGS = {
 }
 
 
-def get_stories_for_date(target: date, n: int = 20, ranking: str = "best") -> list:
-    start = int(datetime(target.year, target.month, target.day,
-                         tzinfo=timezone.utc).timestamp())
-    end   = start + 86400
+def get_stories_for_date(target: date, n: int = 20, ranking: str = "top") -> list:
+    """Fetch top stories for a specific date using a more robust search."""
+    start_ts = int(datetime(target.year, target.month, target.day, tzinfo=timezone.utc).timestamp())
+    end_ts   = start_ts + 86400
+    
     params = {
         "tags":           RANKING_TAGS.get(ranking, "front_page"),
-        "numericFilters": f"created_at_i>{start},created_at_i<{end}",
-        "hitsPerPage":    n * 2,
+        "numericFilters": f"created_at_i>={start_ts},created_at_i<{end_ts}",
+        "hitsPerPage":    100, 
     }
+    
     try:
-        resp = requests.get(HN_ALGOLIA, params=params, timeout=20)
+        resp = requests.get(f"{HN_ALGOLIA}", params=params, timeout=20)
         resp.raise_for_status()
         hits = resp.json().get("hits", [])
     except Exception as e:
@@ -66,6 +70,7 @@ def get_stories_for_date(target: date, n: int = 20, ranking: str = "best") -> li
             seen.add(oid)
             deduped.append(h)
 
+    # Final sort by points to ensure top stories
     deduped.sort(key=lambda h: h.get("points", 0), reverse=True)
     return deduped[:n]
 
@@ -78,40 +83,53 @@ def get_hn_item(item_id: int) -> dict:
         return {}
 
 
-def get_top_comments(item_id: int, max_top: int = 30, max_replies: int = 3) -> list:
-    """Return top-level comments + shallow replies as plain dicts."""
+def get_top_comments(item_id: int, max_top: int = 50, max_replies: int = 3) -> list:
+    """Return top-level comments + shallow replies using parallel fetching."""
     item = get_hn_item(item_id)
     kids = (item.get("kids") or [])[:max_top]
-    result = []
-    for kid_id in kids:
+    
+    def fetch_full_comment(kid_id):
         c = get_hn_item(kid_id)
         if not c or c.get("dead") or c.get("deleted") or not c.get("text"):
-            continue
+            return None
+        
         entry = {
             "author":  c.get("by", ""),
             "score":   c.get("score", 0),
             "text":    re.sub(r"<[^>]+>", " ", c.get("text", ""))[:600],
             "replies": [],
         }
-        for r_id in (c.get("kids") or [])[:max_replies]:
-            rep = get_hn_item(r_id)
-            if rep and not rep.get("dead") and rep.get("text"):
-                entry["replies"].append({
-                    "author": rep.get("by", ""),
-                    "text":   re.sub(r"<[^>]+>", " ", rep.get("text", ""))[:300],
-                })
-        result.append(entry)
-    return result
+        
+        # Parallel fetch replies
+        r_ids = (c.get("kids") or [])[:max_replies]
+        if r_ids:
+            with ThreadPoolExecutor(max_workers=len(r_ids)) as ex:
+                replies = list(ex.map(get_hn_item, r_ids))
+                for rep in replies:
+                    if rep and not rep.get("dead") and rep.get("text"):
+                        entry["replies"].append({
+                            "author": rep.get("by", ""),
+                            "text":   re.sub(r"<[^>]+>", " ", rep.get("text", ""))[:300],
+                        })
+        return entry
+
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        results = list(executor.map(fetch_full_comment, kids))
+    
+    return [r for r in results if r]
 
 
-def fetch_article(url: str, max_chars: int = 10_000) -> str:
+def fetch_article(url: str, max_chars: int = 20_000) -> str:
     if not url:
-        return "[No article URL — likely an Ask/Show HN post]"
+        return "[No article URL - likely an Ask/Show HN post]"
+    if url.lower().endswith(".pdf"):
+        return "[Article is a PDF - scraping not supported for binary files]"
     try:
         headers = {"User-Agent": "Mozilla/5.0 (compatible; HNDigest/1.0)"}
         r = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
         r.raise_for_status()
-        text = r.text
+        # Strip null bytes and non-printable characters that break JSON/CLI
+        text = "".join(ch for ch in r.text if ch.isprintable() or ch in "\n\r\t")
         text = re.sub(r"<script[^>]*>.*?</script>", " ", text, flags=re.DOTALL | re.I)
         text = re.sub(r"<style[^>]*>.*?</style>",   " ", text, flags=re.DOTALL | re.I)
         text = re.sub(r"<[^>]+>", " ", text)
@@ -121,60 +139,73 @@ def fetch_article(url: str, max_chars: int = 10_000) -> str:
         return f"[Article fetch failed: {e}]"
 
 
-# ── Claude Code CLI ────────────────────────────────────────────────────────────
+# ── AI API Calls ──────────────────────────────────────────────────────────────
 
-def call_claude(prompt: str) -> str:
-    """
-    Invoke `claude` CLI in non-interactive print mode.
-    The ANTHROPIC_API_KEY env var is picked up automatically.
-
-    Uses --output-format json so the result field contains Claude's response.
-    Falls back to raw stdout if JSON parsing fails.
-    """
-    proc = subprocess.run(
-        [
-            "claude",
-            "--model",         CLAUDE_MODEL,
-            "--output-format", "json",
-            "-p",              prompt,
+def call_deepseek(prompt: str) -> str:
+    """Invoke DeepSeek API directly."""
+    api_key = os.environ.get("DEEPSEEK_API_KEY")
+    if not api_key:
+        raise RuntimeError("DEEPSEEK_API_KEY env var not set")
+    
+    url = f"{CONFIG.get('deepseek_api_base', 'https://api.deepseek.com')}/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": CONFIG.get("deepseek_model", "deepseek-reasoner"),
+        "messages": [
+            {"role": "system", "content": "You are a senior tech analyst. Return ONLY valid JSON."},
+            {"role": "user", "content": prompt}
         ],
-        capture_output=True,
-        text=True,
-        timeout=180,
-        # inherit the calling process's env (ANTHROPIC_API_KEY flows through)
+        "response_format": {"type": "json_object"}
+    }
+    
+    r = requests.post(url, headers=headers, json=payload, timeout=120)
+    r.raise_for_status()
+    return r.json()["choices"][0]["message"]["content"]
+
+def call_gemini_cli(prompt: str) -> str:
+    """Invoke Gemini CLI."""
+    proc = subprocess.run(
+        ["gemini", "--model", CONFIG["gemini_model"], "--output-format", "json", "-p", prompt],
+        capture_output=True, text=True, timeout=180
     )
+    if proc.returncode == 0:
+        try:
+            outer = json.loads(proc.stdout)
+            if isinstance(outer, dict) and "response" in outer:
+                return outer["response"].strip()
+            return proc.stdout.strip()
+        except:
+            return proc.stdout.strip()
+    
+    stderr = proc.stderr.strip()[:400]
+    raise RuntimeError(f"Gemini CLI error: {stderr}")
 
-    if proc.returncode != 0:
-        stderr = proc.stderr.strip()[:400]
-        raise RuntimeError(f"claude CLI exited {proc.returncode}: {stderr}")
-
-    # Claude Code wraps the response: {"result": "...", "session_id": "...", ...}
-    try:
-        outer = json.loads(proc.stdout)
-        if isinstance(outer, dict) and "result" in outer:
-            return outer["result"].strip()
-    except (json.JSONDecodeError, TypeError):
-        pass
-
-    return proc.stdout.strip()
+def call_ai(prompt: str) -> str:
+    if CONFIG["primary_provider"] == "deepseek":
+        return call_deepseek(prompt)
+    return call_gemini_cli(prompt)
 
 
 # ── Analysis Schema & Prompt ───────────────────────────────────────────────────
 
 ANALYSIS_SCHEMA = """{
-  "topic_category": "AI Fundamentals|AI Applications|Politics|Others",
+  "topic_category": "AI Fundamentals|AI Applications|Tech|Politics|Others",
   "summary_paragraphs": [
-    "<paragraph 1 (100-150 words): core story, context, why submitted>",
-    "<paragraph 2 (100-150 words): key data, quotes, technical or policy detail>",
-    "<paragraph 3 (80-100 words):  why the HN/tech community cares>"
+    "<paragraph 1 (150-180 words): core story, deep context, technical foundation>",
+    "<paragraph 2 (150-180 words): data points, specific quotes, implementation details>",
+    "<paragraph 3 (100-120 words): societal impact, long-term tech implications, why HN cares>"
   ],
   "highlight": "<1-2 sentence compelling stat, quote, or key insight from the article>",
+  "concise_sentiment": "<1-2 sentence extremely brief community reaction summary>",
   "key_points": ["<point 1>","<point 2>","<point 3>","<point 4>","<point 5>"],
   "sentiments": [
     {
       "label":               "<2-4 word label>",
       "type":                "positive|negative|mixed|neutral|debate",
-      "description":         "<~100 words — describe this cohort, quote specific comment phrasing where visible>",
+      "description":         "<~100 words - describe this cohort, quote specific comment phrasing where visible>",
       "estimated_agreement": "~XX users"
     }
   ]
@@ -182,7 +213,7 @@ ANALYSIS_SCHEMA = """{
 
 
 def analyze_story(story: dict, article: str, comments: list) -> dict:
-    """Ask Claude (via CLI) to produce a structured JSON analysis."""
+    """Ask AI to produce a structured JSON analysis."""
 
     comments_block = "\n\n".join(
         f"[{c['author']} score={c.get('score', 0)}]: {c['text']}"
@@ -191,11 +222,11 @@ def analyze_story(story: dict, article: str, comments: list) -> dict:
             for r in c.get("replies", [])
         )
         for c in comments[:25]
-    ) or "[No comments available — reason from article topic and HN norms]"
+    ) or "[No comments available - reason from article topic and HN norms]"
 
     prompt = textwrap.dedent(f"""
         You are writing a high-quality daily tech digest for a sophisticated engineering audience.
-        Analyse the Hacker News story below and return ONLY valid JSON — no markdown fences, no preamble.
+        Analyse the Hacker News story below and return ONLY valid JSON - no markdown fences, no preamble.
 
         ── STORY ─────────────────────────────────────────────────────────
         Title    : {story.get('title', '')}
@@ -203,28 +234,29 @@ def analyze_story(story: dict, article: str, comments: list) -> dict:
         Points   : {story.get('points', 0)}
         Comments : {story.get('num_comments', 0)}
 
-        ── ARTICLE TEXT (up to 10 000 chars) ────────────────────────────
+        ── ARTICLE TEXT (up to 20 000 chars) ────────────────────────────
         {article}
 
         ── HN COMMENTS (top threads + shallow replies) ───────────────────
         {comments_block}
 
         ── INSTRUCTIONS ─────────────────────────────────────────────────
-        • summary_paragraphs: total must exceed 300 words across the three paragraphs.
+        • summary_paragraphs: total must exceed 400 words across the three paragraphs. 
+          Be deep, technical, and analytical. Don't just summarize; provide context.
         • highlight: a single memorable stat, pull-quote, or key insight.
-        • sentiments: identify 3-5 distinct opinion clusters from the REAL comments.
-          For each cluster, cite specific phrasing or arguments visible in the comments.
+        • sentiments: identify 4-6 distinct, deep opinion clusters from the REAL comments.
+          For each cluster, cite specific phrasing or unique arguments visible in the comments.
           estimated_agreement = rough number of commenters for this cluster,
           inferred from upvote scores and reply counts in the comments block.
           If comments are sparse, say so and reason from known HN community patterns.
-        • topic_category must be exactly one of the four enum values.
-        • Return ONLY the JSON object — nothing else.
+        • topic_category must be exactly one of the five enum values.
+        • Return ONLY the JSON object - nothing else.
 
         JSON schema:
         {ANALYSIS_SCHEMA}
     """).strip()
 
-    raw = call_claude(prompt)
+    raw = call_ai(prompt)
 
     # Strip any accidental markdown fencing
     raw = re.sub(r"^```(?:json)?\s*", "", raw.strip(), flags=re.I)
@@ -237,10 +269,10 @@ def analyze_story(story: dict, article: str, comments: list) -> dict:
         m = re.search(r"\{[\s\S]*\}", raw)
         if m:
             return json.loads(m.group())
-        raise ValueError(f"Could not parse JSON from Claude response:\n{raw[:300]}")
+        raise ValueError(f"Could not parse JSON from AI response:\n{raw[:300]}")
 
 
-# ── HTML Constants ─────────────────────────────────────────────────────────────
+# ── Styling & Constants ────────────────────────────────────────────────────────
 
 SENT_CLASS = {
     "positive": "sent-positive",
@@ -253,6 +285,7 @@ SENT_CLASS = {
 BADGE_CLASS = {
     "AI Fundamentals": "badge-ai-fund",
     "AI Applications": "badge-ai-app",
+    "Tech":            "badge-tech",
     "Politics":        "badge-pol",
     "Others":          "badge-others",
 }
@@ -260,6 +293,7 @@ BADGE_CLASS = {
 SECTION_ID = {
     "AI Fundamentals": "ai-fund",
     "AI Applications": "ai-app",
+    "Tech":            "tech",
     "Politics":        "politics",
     "Others":          "others",
 }
@@ -267,7 +301,7 @@ SECTION_ID = {
 PAGE_CSS = """:root{--bg:#0f0e0c;--bg2:#181613;--bg3:#211f1b;--surface:#242119;--border:#332f28;
 --amber:#d4a017;--amber-light:#f0bf4c;--amber-dim:rgba(212,160,23,.12);
 --text:#e8e2d6;--text-dim:#9c9285;--text-muted:#5a5446;
---red:#c45c3a;--green:#5a9e6f;--blue:#4a8ab5;--purple:#8a6bbf;}
+--red:#c45c3a;--green:#5a9e6f;--blue:#4a8ab5;--purple:#8a6bbf;--teal:#4ab5a8;}
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:var(--bg);color:var(--text);font-family:'Source Serif 4',Georgia,serif;font-size:16px;line-height:1.7}
 a{color:inherit;text-decoration:none}
@@ -279,25 +313,17 @@ a:hover{opacity:.75}
 .masthead h1 span{color:var(--amber)}
 .masthead-date{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.15em;color:var(--text-dim);margin-top:10px}
 .masthead-rule{width:60px;height:2px;background:var(--amber);margin:14px auto 0}
-.controls{background:var(--bg3);border-bottom:1px solid var(--border);padding:10px 0;position:sticky;top:0;z-index:100}
-.controls-inner{max-width:1100px;margin:0 auto;padding:0 24px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
-.ctrl-label{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.2em;color:var(--text-muted);text-transform:uppercase;white-space:nowrap}
-.ctrl-select{font-family:'DM Mono',monospace;font-size:12px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:5px 10px;cursor:pointer;outline:none}
-.ctrl-select:hover{border-color:var(--amber)}
-.toc-sep{flex:1}
-.toc{display:flex;gap:6px;flex-wrap:wrap}
-.toc a{font-family:'DM Mono',monospace;font-size:11px;padding:4px 10px;border-radius:3px;transition:opacity .15s}
-.toc a.ai-fund{color:#e87a5a;border:1px solid rgba(196,92,58,.3)}
-.toc a.ai-app{color:#7ec890;border:1px solid rgba(90,158,111,.3)}
-.toc a.pol{color:#7ab8e0;border:1px solid rgba(74,138,181,.3)}
-.toc a.others{color:var(--text-dim);border:1px solid var(--border)}
-.toc a:hover{opacity:.7}
+.nav-controls{background:var(--bg2); border-bottom:1px solid var(--border); padding:10px 0; position:sticky; top:0; z-index:1000; box-shadow:0 4px 20px rgba(0,0,0,0.3);}
+.nav-inner{max-width:1100px; margin:0 auto; padding:0 24px; display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap;}
+.ctrl-group{display:flex; align-items:center; gap:8px;}
+.ctrl-label{font-family:'DM Mono',monospace; font-size:9px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.1em;}
 .container{max-width:1100px;margin:0 auto;padding:0 24px}
 .section-header{display:flex;align-items:center;gap:16px;margin:48px 0 24px}
 .section-badge{font-family:'DM Mono',monospace;font-size:10px;font-weight:500;letter-spacing:.25em;text-transform:uppercase;padding:5px 14px;border-radius:3px;white-space:nowrap}
-.badge-ai-fund{background:rgba(196,92,58,.15);color:#e87a5a;border:1px solid rgba(196,92,58,.3)}
-.badge-ai-app{background:rgba(90,158,111,.15);color:#7ec890;border:1px solid rgba(90,158,111,.3)}
-.badge-pol{background:rgba(74,138,181,.15);color:#7ab8e0;border:1px solid rgba(74,138,181,.3)}
+.badge-ai-fund{background:rgba(196,92,58,.15);color:#e87a5a;border:1px solid rgba(196,92,58,0.3)}
+.badge-ai-app{background:rgba(90,158,111,.15);color:#7ec890;border:1px solid rgba(90,158,111,0.3)}
+.badge-tech{background:rgba(74,181,168,.15);color:var(--teal);border:1px solid rgba(74,181,168,0.3)}
+.badge-pol{background:rgba(74,138,181,.15);color:#7ab8e0;border:1px solid rgba(74,138,181,0.3)}
 .badge-others{background:rgba(122,106,90,.12);color:var(--text-dim);border:1px solid var(--border)}
 .section-line{flex:1;height:1px;background:var(--border)}
 .story-card{background:var(--surface);border:1px solid var(--border);border-radius:6px;margin-bottom:28px;overflow:hidden;transition:border-color .2s}
@@ -349,7 +375,8 @@ a:hover{opacity:.75}
 .cmts-mono{font-family:'DM Mono',monospace;font-size:11px;color:var(--text-dim);white-space:nowrap}
 .footer{border-top:1px solid var(--border);margin-top:64px;padding:28px 0;text-align:center}
 .footer p{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.1em;color:var(--text-muted)}
-@media(max-width:640px){.controls-inner{gap:8px}}"""
+.latest-label{font-family:'DM Mono',monospace; font-size:12px; color:var(--amber); text-transform:uppercase; letter-spacing:0.2em; margin-bottom:16px;}
+@media(max-width:640px){.nav-inner{gap:8px}}"""
 
 
 # ── HTML Builders ─────────────────────────────────────────────────────────────
@@ -388,7 +415,7 @@ def story_card_html(rank: int, story: dict) -> str:
     if rows:
         sent_html = (
             f'<div class="sentiment-section">'
-            f'<div class="sentiment-title">Comment Sentiment Analysis — {ncmts} comments</div>'
+            f'<div class="sentiment-title">Comment Sentiment Analysis - {ncmts} comments</div>'
             f'<table class="sentiment-table">'
             f'<thead><tr><th>Sentiment</th><th>Community View</th><th>Agree</th></tr></thead>'
             f'<tbody>{rows}</tbody></table></div>'
@@ -421,27 +448,55 @@ def others_table_html(stories: list) -> str:
         pts   = story.get("points", 0)
         ncmts = story.get("num_comments", 0)
         hn_id = story.get("objectID", "")
-        para  = (a.get("summary_paragraphs") or [""])[0]
-        short = escape(para[:220] + "…" if len(para) > 220 else para)
+
+        # Build full summary (~200 words)
+        para = " ".join(a.get("summary_paragraphs", []))
+        summary_text = escape(para[:1200] + "..." if len(para) > 1200 else para)
+
+        # Build inline sentiment badges
+        sent_html = ""
+        for s in a.get("sentiments", []):
+            stype = s.get("type", "neutral")
+            slabel = escape(s.get("label", ""))
+            sdesc = escape(s.get("description", ""))
+            agree = escape(str(s.get("estimated_agreement", "")))
+            color = "#5a5446"
+            if stype == "positive": color = "#5a9e6f"
+            elif stype == "negative": color = "#c45c3a"
+            elif stype == "mixed": color = "#d4a017"
+            elif stype == "debate": color = "#8a6bbf"
+
+            sent_html += (
+                f'<div style="margin-top:8px; padding:6px 10px; background:rgba(255,255,255,0.03); border-left:2px solid {color}; border-radius:2px;">'
+                f'<span style="font-family:\'DM Mono\',monospace; font-size:10px; color:{color}; text-transform:uppercase; font-weight:600;">{slabel}</span> '
+                f'<span style="font-size:11px; color:var(--text-dim); margin-left:6px;">{sdesc}</span> '
+                f'<span style="font-family:\'DM Mono\',monospace; font-size:10px; color:var(--amber); margin-left:8px;">({agree})</span>'
+                f'</div>'
+            )
+
         rows += (
             f"<tr>"
-            f"<td><span class='rank-num'>#{rank}</span></td>"
-            f"<td><a href='{url}' target='_blank'>{title}</a></td>"
-            f"<td><span class='pts-mono'>{pts}</span></td>"
-            f"<td><a href='https://news.ycombinator.com/item?id={hn_id}' target='_blank'>"
-            f"<span class='cmts-mono'>{ncmts}</span></a></td>"
-            f"<td>{short}</td>"
+            f"<td style='width:120px;'>"
+            f"<div class='rank-num' style='margin-bottom:4px'>#{rank}</div>"
+            f"<div class='pts-mono' style='margin-bottom:2px'>{pts} pts</div>"
+            f"<div class='cmts-mono'><a href='https://news.ycombinator.com/item?id={hn_id}' target='_blank'>{ncmts} c</a></div>"
+            f"</td>"
+            f"<td>"
+            f"<div style='margin-bottom:8px;'><a href='{url}' target='_blank' style='font-family:\"Playfair Display\",serif; font-size:1.1rem; font-weight:700; color:var(--text);'>{title}</a></div>"
+            f"<div style='font-size:14px; line-height:1.5; color:#c0b8a8;'>{summary_text}</div>"
+            f"{sent_html}"
+            f"</td>"
             f"</tr>"
         )
     return f"""
 <div class="story-card">
   <div class="story-body" style="padding:18px 26px">
     <p style="font-size:14px;color:var(--text-dim);margin-bottom:18px">
-      Remaining stories — concise reference table.
+      Remaining stories - comprehensive digest table.
     </p>
     <div class="others-table-wrap">
       <table class="others-table">
-        <thead><tr><th>#</th><th>Story</th><th>Pts</th><th>Cmts</th><th>Summary</th></tr></thead>
+        <thead><tr><th>Stats</th><th>Digest</th></tr></thead>
         <tbody>{rows}</tbody>
       </table>
     </div>
@@ -449,289 +504,272 @@ def others_table_html(stories: list) -> str:
 </div>"""
 
 
-# ── Manifest ──────────────────────────────────────────────────────────────────
+# ── UI Helpers ────────────────────────────────────────────────────────────────
 
-def load_manifest() -> dict:
-    if MANIFEST.exists():
-        try:
-            return json.loads(MANIFEST.read_text())
-        except Exception:
-            pass
-    return {"entries": [], "files": []}
-
-
-def save_manifest(m: dict):
-    MANIFEST.write_text(json.dumps(m, indent=2))
-
-
-def update_manifest(target: date, filename: str, ranking: str, n: int) -> dict:
-    m = load_manifest()
-    date_iso = target.isoformat()
-    m["entries"] = [e for e in m["entries"]
-                    if not (e["date"] == date_iso and e["ranking"] == ranking)]
-    m["entries"].insert(0, {
-        "date": date_iso, "file": filename,
-        "ranking": ranking, "story_count": n,
-    })
-    m["entries"].sort(key=lambda e: e["date"], reverse=True)
-    m["files"] = [e["file"] for e in m["entries"]]
-    save_manifest(m)
-    return m
-
-
-# ── Page Template ─────────────────────────────────────────────────────────────
-
-def build_page(target: date, stories: list, ranking: str, manifest: dict) -> str:
-    cats: dict[str, list] = {
-        "AI Fundamentals": [], "AI Applications": [], "Politics": [], "Others": []
-    }
-    for i, s in enumerate(stories):
-        cat = s.get("analysis", {}).get("topic_category", "Others")
-        if cat not in cats:
-            cat = "Others"
-        cats[cat].append((i + 1, s))
-
-    # Section HTML
-    sections = ""
-    for cat, items in cats.items():
-        if not items:
-            continue
-        sid  = SECTION_ID[cat]
-        bid  = BADGE_CLASS[cat]
-        sections += (
-            f'<div class="section-header" id="{sid}">'
-            f'<span class="section-badge {bid}">{escape(cat)}</span>'
-            f'<div class="section-line"></div></div>\n'
-        )
-        if cat == "Others":
-            sections += others_table_html(items)
-        else:
-            for rank, story in items:
-                sections += story_card_html(rank, story)
-
-    date_iso  = target.isoformat()
-    date_str  = target.strftime("%A, %B %d, %Y").upper()
-
-    # Date selector — include current date even if not yet in manifest
-    all_dates = [date_iso] + [e["date"] for e in manifest.get("entries", [])
-                               if e["date"] != date_iso]
+def get_navbar_html(manifest: dict, current_file: str = "") -> str:
+    """Generate a consistent navigation bar for all pages."""
+    entries = manifest.get("entries", [])
+    
     date_opts = "\n".join(
-        f'<option value="{d}"{"  selected" if d == date_iso else ""}>{d}</option>'
-        for d in dict.fromkeys(all_dates)   # preserve order, dedup
+        f'<option value="{e["file"]}" {"selected" if e["file"] == current_file else ""}>{e["date"]} ({e["ranking"].upper()})</option>'
+        for e in entries
     )
+    
+    return f"""
+<div class="nav-controls">
+  <div class="nav-inner">
+    <div class="toc" style="display:flex; align-items:center; gap:8px;">
+      <a href="./index.html" style="font-family:'DM Mono',monospace; font-size:11px; padding:5px 14px; background:var(--amber); color:var(--bg); border-radius:3px; margin-right:12px; font-weight:800; letter-spacing:0.05em;">HOME</a>
+      <a href="#ai-fund" class="ai-fund" style="font-family:'DM Mono',monospace; font-size:10px; padding:4px 10px; border-radius:3px; border:1px solid rgba(196,92,58,0.3); color:#e87a5a;">AI Fundamentals</a>
+      <a href="#ai-app"  class="ai-app"  style="font-family:'DM Mono',monospace; font-size:10px; padding:4px 10px; border-radius:3px; border:1px solid rgba(90,158,111,0.3); color:#7ec890;">AI Applications</a>
+      <a href="#tech"    class="tech"    style="font-family:'DM Mono',monospace; font-size:10px; padding:4px 10px; border-radius:3px; border:1px solid rgba(74,181,168,0.3); color:var(--teal);">Tech</a>
+      <a href="#politics" class="pol"     style="font-family:'DM Mono',monospace; font-size:10px; padding:4px 10px; border-radius:3px; border:1px solid rgba(74,138,181,0.3); color:#7ab8e0;">Politics</a>
+      <a href="#others"  class="others"  style="font-family:'DM Mono',monospace; font-size:10px; padding:4px 10px; border-radius:3px; border:1px solid var(--border); color:var(--text-dim);">Others</a>
+    </div>
+    <div style="display:flex; gap:20px; align-items:center;">
+      <div class="ctrl-group">
+        <span class="ctrl-label">History</span>
+        <select class="ctrl-select" onchange="window.location.href=this.value" style="background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:4px; padding:4px 8px; font-family:'DM Mono',monospace; font-size:11px; cursor:pointer;">
+          <option value="#">Jump to...</option>
+          {date_opts}
+        </select>
+      </div>
+    </div>
+  </div>
+</div>"""
 
-    ranking_opts = "\n".join(
-        f'<option value="{r}"{"  selected" if r == ranking else ""}>{r.upper()}</option>'
-        for r in ["best", "top", "new", "ask", "show"]
-    )
-
-    manifest_json = json.dumps(manifest)
-
+def wrap_with_layout(title: str, date_str: str, subtitle: str, content: str, navbar_html: str, manifest_json: str = "{}") -> str:
+    """Master layout wrapper for all pages."""
+    model_str = CONFIG["deepseek_model"] if CONFIG["primary_provider"] == "deepseek" else CONFIG["gemini_model"]
+    provider_str = CONFIG["primary_provider"].capitalize()
+    
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>HN Digest · {date_iso}</title>
+<title>{title}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900;1,700&family=Source+Serif+4:ital,wght@0,300;0,400;0,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>{PAGE_CSS}</style>
 </head>
 <body>
-
 <div class="masthead">
-  <div class="masthead-sub">Daily Intelligence Brief</div>
+  <div class="masthead-sub">Intelligence Briefing</div>
   <h1>Hacker <span>News</span></h1>
-  <div class="masthead-date">{date_str} · TOP {len(stories)} · RANKED BY {ranking.upper()}</div>
+  <div class="masthead-date">{date_str} - {subtitle}</div>
   <div class="masthead-rule"></div>
 </div>
-
-<div class="controls">
-  <div class="controls-inner">
-    <span class="ctrl-label">Date</span>
-    <select class="ctrl-select" id="dateSelect" onchange="navigate()">
-      {date_opts}
-    </select>
-    <span class="ctrl-label">Ranking</span>
-    <select class="ctrl-select" id="rankSelect" onchange="navigate()">
-      {ranking_opts}
-    </select>
-    <div class="toc-sep"></div>
-    <div class="toc">
-      <a href="#ai-fund" class="ai-fund">AI Fundamentals</a>
-      <a href="#ai-app"  class="ai-app">AI Applications</a>
-      <a href="#politics" class="pol">Politics</a>
-      <a href="#others"  class="others">Others</a>
-    </div>
-  </div>
-</div>
-
-<div class="container">
-{sections}
-</div>
-
+{navbar_html}
+<div class="container">{content}</div>
 <div class="footer">
   <div class="container">
-    <p>Data: HN Algolia Search + Firebase APIs · Summaries: Claude {CLAUDE_MODEL} via Claude Code CLI</p>
+    <p>Data: HN Algolia Search + Firebase APIs - Summaries: {model_str} via {provider_str}</p>
     <p style="margin-top:6px;font-size:10px">
       Sentiment analysis uses real HN comment threads fetched at generation time.
       Agreement estimates are inferred from comment upvote distribution and reply volume.
     </p>
   </div>
 </div>
-
-<script>
-const MANIFEST = {manifest_json};
-function navigate() {{
-  const d = document.getElementById('dateSelect').value;
-  const r = document.getElementById('rankSelect').value;
-  const suffix = r !== 'best' ? '-' + r : '';
-  const target = d + suffix + '.html';
-  const files  = MANIFEST.files || [];
-  if (files.includes(target) || target === window.location.pathname.split('/').pop()) {{
-    window.location.href = target;
-  }} else {{
-    // fallback: try the best-ranking page for that date
-    window.location.href = d + '.html';
-  }}
-}}
-</script>
+<script>const MANIFEST = {manifest_json};</script>
 </body>
 </html>"""
 
 
-def build_index(manifest: dict) -> str:
-    cal_entries = json.dumps(manifest.get("entries", []))
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>HN Daily Digest</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900&family=Source+Serif+4:ital,wght@0,300;0,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
-<style>
-{PAGE_CSS}
-.hero{{max-width:680px;margin:48px auto 0}}
-.hero p{{font-size:15px;color:var(--text-dim);font-weight:300;line-height:1.7}}
-h2{{font-family:'Playfair Display',serif;font-size:1.5rem;font-style:italic;
-    color:var(--text);margin:48px 0 20px;padding-bottom:12px;border-bottom:1px solid var(--border)}}
-.calendar{{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px}}
-.cal-card{{background:var(--surface);border:1px solid var(--border);border-radius:6px;
-           padding:14px 16px;transition:border-color .2s,transform .15s}}
-.cal-card:hover{{border-color:var(--amber);transform:translateY(-2px)}}
-.cal-card a{{display:block;color:inherit}}
-.cal-date{{font-family:'DM Mono',monospace;font-size:11px;color:var(--amber);
-            letter-spacing:.1em;margin-bottom:4px}}
-.cal-day{{font-size:13px;color:var(--text)}}
-.cal-meta{{font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted);margin-top:4px}}
-</style>
-</head>
-<body>
-<div class="masthead">
-  <div class="masthead-sub">Daily Intelligence Brief</div>
-  <h1>Hacker <span>News</span></h1>
-  <div class="masthead-date">AI &amp; TECH DIGEST ARCHIVE</div>
-  <div class="masthead-rule"></div>
-</div>
-<div class="container" style="padding-bottom:80px">
-  <div class="hero">
-    <p>Each day's top 20 Hacker News stories — article summaries (300+ words), key highlights,
-    and comment sentiment analysis — categorised into AI Fundamentals, AI Applications,
-    Politics, and Others. Updated automatically every day.</p>
-  </div>
-  <h2>Reports</h2>
-  <div class="calendar" id="cal"></div>
-</div>
-<div class="footer">
-  <div class="container">
-    <p>Updated daily via GitHub Actions · HN API + Algolia · Claude {CLAUDE_MODEL} via Claude Code CLI</p>
-  </div>
-</div>
-<script>
-const entries = {cal_entries};
-const cal = document.getElementById('cal');
-entries.forEach(e => {{
-  const d  = new Date(e.date + 'T12:00:00Z');
-  const wd = d.toLocaleDateString('en-US', {{weekday:'short', timeZone:'UTC'}});
-  const pr = d.toLocaleDateString('en-US', {{month:'short', day:'numeric', year:'numeric', timeZone:'UTC'}});
-  const div = document.createElement('div');
-  div.className = 'cal-card';
-  div.innerHTML = `<a href="${{e.file}}">
-    <div class="cal-date">${{e.date}}</div>
-    <div class="cal-day">${{wd}} · ${{pr}}</div>
-    <div class="cal-meta">${{e.story_count}} stories · ${{e.ranking.toUpperCase()}}</div>
-  </a>`;
-  cal.appendChild(div);
-}});
-</script>
-</body>
-</html>"""
+# ── Manifest & Retention ──────────────────────────────────────────────────────
+
+def load_manifest() -> dict:
+    if MANIFEST.exists():
+        try: return json.loads(MANIFEST.read_text())
+        except: pass
+    return {"entries": [], "files": []}
+
+def save_manifest(m: dict):
+    MANIFEST.write_text(json.dumps(m, indent=2))
+
+def update_manifest(target: date, filename: str, ranking: str, n: int, retention: int = 30) -> dict:
+    m = load_manifest()
+    
+    # Identify all physical report files (exclude index.html)
+    existing_files = {f.name for f in OUTPUT_DIR.glob("*.html") if f.name != "index.html"}
+    
+    # Sync manifest with disk
+    current_entries = [e for e in m["entries"] if e["file"] in existing_files]
+    
+    if target and filename:
+        date_iso = target.isoformat()
+        current_entries = [e for e in current_entries if not (e["date"] == date_iso and e["ranking"] == ranking)]
+        current_entries.insert(0, {
+            "date": date_iso, "file": filename,
+            "ranking": ranking, "story_count": n,
+        })
+    
+    current_entries.sort(key=lambda e: e["date"], reverse=True)
+    
+    if retention > 0 and len(current_entries) > retention:
+        to_keep = current_entries[:retention]
+        to_delete = current_entries[retention:]
+        for entry in to_delete:
+            fpath = OUTPUT_DIR / entry["file"]
+            if fpath.exists(): fpath.unlink()
+        
+        # Also clean up orphan HTML files
+        keep_filenames = {e["file"] for e in to_keep}
+        for fname in existing_files:
+            if fname not in keep_filenames and (not filename or fname != filename):
+                fpath = OUTPUT_DIR / fname
+                if fpath.exists(): fpath.unlink()
+        
+        current_entries = to_keep
+
+    m["entries"] = current_entries
+    m["files"] = [e["file"] for e in current_entries]
+    save_manifest(m)
+    return m
+
+# ── Page Templates ─────────────────────────────────────────────────────────────
+
+def build_page(target: date, stories: list, ranking: str, manifest: dict) -> str:
+    cats: dict[str, list] = {
+        "AI Fundamentals": [], "AI Applications": [], "Tech": [], "Politics": [], "Others": []
+    }
+    for i, s in enumerate(stories):
+        cat = s.get("analysis", {}).get("topic_category", "Others")
+        if cat not in cats: cat = "Others"
+        cats[cat].append((i + 1, s))
+
+    sections = ""
+    for cat, items in cats.items():
+        if not items: continue
+        sid, bid = SECTION_ID[cat], BADGE_CLASS[cat]
+        sections += f'<div class="section-header" id="{sid}"><span class="section-badge {bid}">{escape(cat)}</span><div class="section-line"></div></div>\n'
+        if cat == "Others": sections += others_table_html(items)
+        else:
+            for rank, story in items: sections += story_card_html(rank, story)
+
+    date_iso  = target.isoformat()
+    date_str  = target.strftime("%A, %B %d, %Y").upper()
+    filename  = f"{date_iso}{'-' + ranking if ranking != 'best' else ''}.html"
+    navbar_html = get_navbar_html(manifest, current_file=filename)
+    
+    return wrap_with_layout(
+        title=f"HN Digest - {date_iso}",
+        date_str=date_str,
+        subtitle=f"TOP {len(stories)} - {ranking.upper()}",
+        content=sections,
+        navbar_html=navbar_html,
+        manifest_json=json.dumps(manifest)
+    )
+
+
+def build_index(manifest: dict, latest_stories: list, latest_target: date, latest_ranking: str) -> str:
+    cats: dict[str, list] = {
+        "AI Fundamentals": [], "AI Applications": [], "Tech": [], "Politics": [], "Others": []
+    }
+    for i, s in enumerate(latest_stories):
+        cat = s.get("analysis", {}).get("topic_category", "Others")
+        if cat not in cats: cat = "Others"
+        cats[cat].append((i + 1, s))
+
+    latest_sections = ""
+    for cat, items in cats.items():
+        if not items: continue
+        sid, bid = SECTION_ID[cat], BADGE_CLASS[cat]
+        latest_sections += f'<div class="section-header" id="{sid}"><span class="section-badge {bid}">{escape(cat)}</span><div class="section-line"></div></div>\n'
+        if cat == "Others": latest_sections += others_table_html(items)
+        else:
+            for rank, story in items: latest_sections += story_card_html(rank, story)
+
+    date_str = latest_target.strftime("%A, %B %d, %Y").upper()
+    navbar_html = get_navbar_html(manifest, current_file="index.html")
+
+    content = f'<div style="margin-top:48px; text-align:center;"><div class="latest-label">Latest Briefing</div></div>{latest_sections}'
+    
+    return wrap_with_layout(
+        title="HN Daily Digest",
+        date_str=date_str,
+        subtitle=f"TOP {len(latest_stories)} - {latest_ranking.upper()}",
+        content=content,
+        navbar_html=navbar_html
+    )
 
 
 # ── Entry Point ───────────────────────────────────────────────────────────────
 
-def run(target: date, ranking: str, n_stories: int):
-    print(f"  Date={target}  Ranking={ranking}  Stories={n_stories}")
+def run(target: date, ranking: str, n_stories: int, retention: int = 30):
+    print(f"  Date={target}  Ranking={ranking}  Stories={n_stories}  Retention={retention}")
 
-    print("  Fetching story list…")
+    print("  Fetching story list...")
     stories = get_stories_for_date(target, n=n_stories, ranking=ranking)
-    if not stories:
-        print("  ⚠ No stories found — skipping.")
-        return
+    
+    filename = None
+    if stories:
+        print(f"  Found {len(stories)} stories. Starting analysis...")
+        for i, story in enumerate(stories):
+            title = story.get("title", "")[:65]
+            print(f"  [{i+1:02}/{len(stories)}] {title}")
+            hn_id    = story.get("objectID", "")
+            
+            t0 = time.time()
+            article  = fetch_article(story.get("url", ""))
+            t_article = time.time() - t0
+            
+            t0 = time.time()
+            comments = get_top_comments(int(hn_id)) if hn_id else []
+            t_comments = time.time() - t0
 
-    print(f"  Found {len(stories)} stories. Starting analysis…")
-    for i, story in enumerate(stories):
-        title = story.get("title", "")[:65]
-        print(f"  [{i+1:02}/{len(stories)}] {title}")
-        hn_id    = story.get("objectID", "")
-        article  = fetch_article(story.get("url", ""))
-        comments = get_top_comments(int(hn_id)) if hn_id else []
+            t0 = time.time()
+            try:
+                story["analysis"] = analyze_story(story, article, comments)
+                t_ai = time.time() - t0
+                print(f"         ⏱  Scrape: {t_article:.1f}s | HN: {t_comments:.1f}s | AI: {t_ai:.1f}s")
+            except Exception as e:
+                print(f"         ⚠ Analysis error: {e}")
+                story["analysis"] = {
+                    "topic_category":    "Others",
+                    "summary_paragraphs": [story.get("title", ""), "Analysis unavailable."],
+                    "highlight": "", "key_points": [], "sentiments": [],
+                }
+            time.sleep(2.0)   # stay within 15 RPM Free Tier limit
 
-        try:
-            story["analysis"] = analyze_story(story, article, comments)
-        except Exception as e:
-            print(f"         ⚠ Analysis error: {e}")
-            story["analysis"] = {
-                "topic_category":    "Others",
-                "summary_paragraphs": [story.get("title", ""), "Analysis unavailable."],
-                "highlight": "", "key_points": [], "sentiments": [],
-            }
-        time.sleep(0.4)   # gentle pacing
+        suffix   = f"-{ranking}" if ranking != "best" else ""
+        filename = f"{target.isoformat()}{suffix}.html"
+        
+        # Build the daily page using current manifest + this run
+        m = load_manifest()
+        tmp_entries = [{"date": target.isoformat(), "file": filename, "ranking": ranking, "story_count": len(stories)}]
+        for e in m["entries"]:
+            if not (e["date"] == target.isoformat() and e["ranking"] == ranking):
+                tmp_entries.append(e)
+        tmp_entries.sort(key=lambda x: x["date"], reverse=True)
+        
+        html = build_page(target, stories, ranking, {"entries": tmp_entries})
+        (OUTPUT_DIR / filename).write_text(html, encoding="utf-8")
+        print(f"  ✔ {OUTPUT_DIR / filename}")
+    else:
+        print("  ⚠ No stories found for today.")
 
-    suffix   = f"-{ranking}" if ranking != "best" else ""
-    filename = f"{target.isoformat()}{suffix}.html"
-    manifest = load_manifest()
-    # Add current date to date selector before building the page
-    tmp_manifest = dict(manifest)
-    tmp_manifest["entries"] = (
-        [{"date": target.isoformat(), "file": filename,
-          "ranking": ranking, "story_count": len(stories)}]
-        + [e for e in manifest.get("entries", [])
-           if not (e["date"] == target.isoformat() and e["ranking"] == ranking)]
-    )
-    tmp_manifest["entries"].sort(key=lambda e: e["date"], reverse=True)
-    tmp_manifest["files"] = [e["file"] for e in tmp_manifest["entries"]]
+    # Always update manifest (to enforce retention) and rebuild index
+    manifest = update_manifest(target if stories else None, filename, ranking, len(stories), retention=retention)
+    
+    # Decide what stories to show on the index page
+    index_stories, index_target, index_ranking = (stories, target, ranking) if stories else ([], target, ranking)
 
-    html = build_page(target, stories, ranking, tmp_manifest)
-    (OUTPUT_DIR / filename).write_text(html, encoding="utf-8")
-    print(f"  ✔ {OUTPUT_DIR / filename}")
-
-    manifest = update_manifest(target, filename, ranking, len(stories))
-    (OUTPUT_DIR / "index.html").write_text(build_index(manifest), encoding="utf-8")
-    print("  ✔ index.html + manifest.json")
+    (OUTPUT_DIR / "index.html").write_text(build_index(manifest, index_stories, index_target, index_ranking), encoding="utf-8")
+    print("  ✔ index.html + manifest.json (Retention applied)")
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--date",    default=None)
-    ap.add_argument("--ranking", default="best", choices=list(RANKING_TAGS.keys()))
+    ap.add_argument("--ranking", default="top", choices=list(RANKING_TAGS.keys()))
     ap.add_argument("--stories", default=20, type=int)
+    ap.add_argument("--retention", default=30, type=int, help="Number of days to keep in archive")
     args = ap.parse_args()
 
     target = (date.fromisoformat(args.date) if args.date
               else date.today() - timedelta(days=1))
-    run(target, args.ranking, args.stories)
+    run(target, args.ranking, args.stories, args.retention)
 
 
 if __name__ == "__main__":

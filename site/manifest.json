@@ -2,19 +2,26 @@
   "entries": [
     {
       "date": "2026-02-23",
-      "file": "2026-02-23.html",
-      "ranking": "best",
-      "story_count": 18
+      "file": "2026-02-23-top.html",
+      "ranking": "top",
+      "story_count": 2
     },
     {
-      "date": "2026-02-22",
-      "file": "2026-02-22.html",
-      "ranking": "best",
-      "story_count": 14
+      "date": "2026-02-21",
+      "file": "2026-02-21-top.html",
+      "ranking": "top",
+      "story_count": 2
+    },
+    {
+      "date": "2026-02-20",
+      "file": "2026-02-20-top.html",
+      "ranking": "top",
+      "story_count": 2
     }
   ],
   "files": [
-    "2026-02-23.html",
-    "2026-02-22.html"
+    "2026-02-23-top.html",
+    "2026-02-21-top.html",
+    "2026-02-20-top.html"
   ]
 }
