@@ -6,13 +6,21 @@ Fetches top HN stories via Algolia + Firebase APIs, then calls
 AI (Gemini or DeepSeek) for each story to produce deep reports.
 """
 
-import os, sys, re, json, time, argparse, subprocess, textwrap, requests
+import os
+import re
+import json
+import time
+import argparse
+import subprocess
+import textwrap
+import requests
 from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
 from html import escape
 from concurrent.futures import ThreadPoolExecutor
 
 # ── Configuration ─────────────────────────────────────────────────────────────
+
 
 def load_config():
     conf_path = Path("config.json")
@@ -22,39 +30,42 @@ def load_config():
         "primary_provider": "gemini",
         "gemini_model": "gemini-2.0-flash",
         "deepseek_model": "deepseek-reasoner",
-        "deepseek_api_base": "https://api.deepseek.com"
+        "deepseek_api_base": "https://api.deepseek.com",
     }
+
 
 CONFIG = load_config()
 OUTPUT_DIR = Path("site")
 OUTPUT_DIR.mkdir(exist_ok=True)
-MANIFEST   = OUTPUT_DIR / "manifest.json"
+MANIFEST = OUTPUT_DIR / "manifest.json"
 
 # ── HN APIs ───────────────────────────────────────────────────────────────────
 
 HN_FIREBASE = "https://hacker-news.firebaseio.com/v0"
-HN_ALGOLIA  = "https://hn.algolia.com/api/v1/search"
+HN_ALGOLIA = "https://hn.algolia.com/api/v1/search"
 
 RANKING_TAGS = {
-    "best":  "front_page",
-    "top":   "front_page",
-    "new":   "story",
-    "ask":   "ask_hn",
-    "show":  "show_hn",
+    "best": "front_page",
+    "top": "front_page",
+    "new": "story",
+    "ask": "ask_hn",
+    "show": "show_hn",
 }
 
 
 def get_stories_for_date(target: date, n: int = 20, ranking: str = "top") -> list:
     """Fetch top stories for a specific date using a more robust search."""
-    start_ts = int(datetime(target.year, target.month, target.day, tzinfo=timezone.utc).timestamp())
-    end_ts   = start_ts + 86400
-    
+    start_ts = int(
+        datetime(target.year, target.month, target.day, tzinfo=timezone.utc).timestamp()
+    )
+    end_ts = start_ts + 86400
+
     params = {
-        "tags":           RANKING_TAGS.get(ranking, "front_page"),
+        "tags": RANKING_TAGS.get(ranking, "front_page"),
         "numericFilters": f"created_at_i>={start_ts},created_at_i<{end_ts}",
-        "hitsPerPage":    100, 
+        "hitsPerPage": 100,
     }
-    
+
     try:
         resp = requests.get(f"{HN_ALGOLIA}", params=params, timeout=20)
         resp.raise_for_status()
@@ -87,19 +98,19 @@ def get_top_comments(item_id: int, max_top: int = 50, max_replies: int = 3) -> l
     """Return top-level comments + shallow replies using parallel fetching."""
     item = get_hn_item(item_id)
     kids = (item.get("kids") or [])[:max_top]
-    
+
     def fetch_full_comment(kid_id):
         c = get_hn_item(kid_id)
         if not c or c.get("dead") or c.get("deleted") or not c.get("text"):
             return None
-        
+
         entry = {
-            "author":  c.get("by", ""),
-            "score":   c.get("score", 0),
-            "text":    re.sub(r"<[^>]+>", " ", c.get("text", ""))[:600],
+            "author": c.get("by", ""),
+            "score": c.get("score", 0),
+            "text": re.sub(r"<[^>]+>", " ", c.get("text", ""))[:600],
             "replies": [],
         }
-        
+
         # Parallel fetch replies
         r_ids = (c.get("kids") or [])[:max_replies]
         if r_ids:
@@ -107,15 +118,19 @@ def get_top_comments(item_id: int, max_top: int = 50, max_replies: int = 3) -> l
                 replies = list(ex.map(get_hn_item, r_ids))
                 for rep in replies:
                     if rep and not rep.get("dead") and rep.get("text"):
-                        entry["replies"].append({
-                            "author": rep.get("by", ""),
-                            "text":   re.sub(r"<[^>]+>", " ", rep.get("text", ""))[:300],
-                        })
+                        entry["replies"].append(
+                            {
+                                "author": rep.get("by", ""),
+                                "text": re.sub(r"<[^>]+>", " ", rep.get("text", ""))[
+                                    :300
+                                ],
+                            }
+                        )
         return entry
 
     with ThreadPoolExecutor(max_workers=10) as executor:
         results = list(executor.map(fetch_full_comment, kids))
-    
+
     return [r for r in results if r]
 
 
@@ -131,7 +146,7 @@ def fetch_article(url: str, max_chars: int = 20_000) -> str:
         # Strip null bytes and non-printable characters that break JSON/CLI
         text = "".join(ch for ch in r.text if ch.isprintable() or ch in "\n\r\t")
         text = re.sub(r"<script[^>]*>.*?</script>", " ", text, flags=re.DOTALL | re.I)
-        text = re.sub(r"<style[^>]*>.*?</style>",   " ", text, flags=re.DOTALL | re.I)
+        text = re.sub(r"<style[^>]*>.*?</style>", " ", text, flags=re.DOTALL | re.I)
         text = re.sub(r"<[^>]+>", " ", text)
         text = re.sub(r"\s+", " ", text).strip()
         return text[:max_chars]
@@ -141,35 +156,47 @@ def fetch_article(url: str, max_chars: int = 20_000) -> str:
 
 # ── AI API Calls ──────────────────────────────────────────────────────────────
 
+
 def call_deepseek(prompt: str) -> str:
     """Invoke DeepSeek API directly."""
     api_key = os.environ.get("DEEPSEEK_API_KEY")
     if not api_key:
         raise RuntimeError("DEEPSEEK_API_KEY env var not set")
-    
+
     url = f"{CONFIG.get('deepseek_api_base', 'https://api.deepseek.com')}/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     payload = {
         "model": CONFIG.get("deepseek_model", "deepseek-reasoner"),
         "messages": [
-            {"role": "system", "content": "You are a senior tech analyst. Return ONLY valid JSON."},
-            {"role": "user", "content": prompt}
+            {
+                "role": "system",
+                "content": "You are a senior tech analyst. Return ONLY valid JSON.",
+            },
+            {"role": "user", "content": prompt},
         ],
-        "response_format": {"type": "json_object"}
+        "response_format": {"type": "json_object"},
     }
-    
+
     r = requests.post(url, headers=headers, json=payload, timeout=120)
     r.raise_for_status()
     return r.json()["choices"][0]["message"]["content"]
 
+
 def call_gemini_cli(prompt: str) -> str:
     """Invoke Gemini CLI."""
     proc = subprocess.run(
-        ["gemini", "--model", CONFIG["gemini_model"], "--output-format", "json", "-p", prompt],
-        capture_output=True, text=True, timeout=180
+        [
+            "gemini",
+            "--model",
+            CONFIG["gemini_model"],
+            "--output-format",
+            "json",
+            "-p",
+            prompt,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=180,
     )
     if proc.returncode == 0:
         try:
@@ -177,11 +204,12 @@ def call_gemini_cli(prompt: str) -> str:
             if isinstance(outer, dict) and "response" in outer:
                 return outer["response"].strip()
             return proc.stdout.strip()
-        except:
+        except json.JSONDecodeError:
             return proc.stdout.strip()
-    
+
     stderr = proc.stderr.strip()[:400]
     raise RuntimeError(f"Gemini CLI error: {stderr}")
+
 
 def call_ai(prompt: str) -> str:
     if CONFIG["primary_provider"] == "deepseek":
@@ -194,9 +222,8 @@ def call_ai(prompt: str) -> str:
 ANALYSIS_SCHEMA = """{
   "topic_category": "AI Fundamentals|AI Applications|Tech|Politics|Others",
   "summary_paragraphs": [
-    "<paragraph 1 (150-180 words): core story, deep context, technical foundation>",
-    "<paragraph 2 (150-180 words): data points, specific quotes, implementation details>",
-    "<paragraph 3 (100-120 words): societal impact, long-term tech implications, why HN cares>"
+    "<paragraph 1 (~150 words): core story, deep context, technical foundation>",
+    "<paragraph 2 (~150 words): data points, specific quotes, implementation details, and societal impact>"
   ],
   "highlight": "<1-2 sentence compelling stat, quote, or key insight from the article>",
   "concise_sentiment": "<1-2 sentence extremely brief community reaction summary>",
@@ -215,14 +242,16 @@ ANALYSIS_SCHEMA = """{
 def analyze_story(story: dict, article: str, comments: list) -> dict:
     """Ask AI to produce a structured JSON analysis."""
 
-    comments_block = "\n\n".join(
-        f"[{c['author']} score={c.get('score', 0)}]: {c['text']}"
-        + "".join(
-            f"\n  ↳ [{r['author']}]: {r['text']}"
-            for r in c.get("replies", [])
+    comments_block = (
+        "\n\n".join(
+            f"[{c['author']} score={c.get('score', 0)}]: {c['text']}"
+            + "".join(
+                f"\n  ↳ [{r['author']}]: {r['text']}" for r in c.get("replies", [])
+            )
+            for c in comments[:25]
         )
-        for c in comments[:25]
-    ) or "[No comments available - reason from article topic and HN norms]"
+        or "[No comments available - reason from article topic and HN norms]"
+    )
 
     prompt = textwrap.dedent(f"""
         You are writing a high-quality daily tech digest for a sophisticated engineering audience.
@@ -241,11 +270,12 @@ def analyze_story(story: dict, article: str, comments: list) -> dict:
         {comments_block}
 
         ── INSTRUCTIONS ─────────────────────────────────────────────────
-        • summary_paragraphs: total must exceed 400 words across the three paragraphs. 
+        • summary_paragraphs: exactly two paragraphs, totaling approximately 300 words.
           Be deep, technical, and analytical. Don't just summarize; provide context.
         • highlight: a single memorable stat, pull-quote, or key insight.
-        • sentiments: identify 4-6 distinct, deep opinion clusters from the REAL comments.
-          For each cluster, cite specific phrasing or unique arguments visible in the comments.
+        • sentiments: identify EXACTLY 4 distinct, deep opinion clusters from the REAL comments.
+          For each cluster, provide approximately 100 words of analysis, citing specific phrasing
+          or unique arguments visible in the comments.
           estimated_agreement = rough number of commenters for this cluster,
           inferred from upvote scores and reply counts in the comments block.
           If comments are sparse, say so and reason from known HN community patterns.
@@ -260,7 +290,7 @@ def analyze_story(story: dict, article: str, comments: list) -> dict:
 
     # Strip any accidental markdown fencing
     raw = re.sub(r"^```(?:json)?\s*", "", raw.strip(), flags=re.I)
-    raw = re.sub(r"\s*```$",          "", raw.strip())
+    raw = re.sub(r"\s*```$", "", raw.strip())
 
     try:
         return json.loads(raw)
@@ -277,25 +307,25 @@ def analyze_story(story: dict, article: str, comments: list) -> dict:
 SENT_CLASS = {
     "positive": "sent-positive",
     "negative": "sent-negative",
-    "mixed":    "sent-mixed",
-    "neutral":  "sent-neutral",
-    "debate":   "sent-debate",
+    "mixed": "sent-mixed",
+    "neutral": "sent-neutral",
+    "debate": "sent-debate",
 }
 
 BADGE_CLASS = {
     "AI Fundamentals": "badge-ai-fund",
     "AI Applications": "badge-ai-app",
-    "Tech":            "badge-tech",
-    "Politics":        "badge-pol",
-    "Others":          "badge-others",
+    "Tech": "badge-tech",
+    "Politics": "badge-pol",
+    "Others": "badge-others",
 }
 
 SECTION_ID = {
     "AI Fundamentals": "ai-fund",
     "AI Applications": "ai-app",
-    "Tech":            "tech",
-    "Politics":        "politics",
-    "Others":          "others",
+    "Tech": "tech",
+    "Politics": "politics",
+    "Others": "others",
 }
 
 PAGE_CSS = """:root{--bg:#0f0e0c;--bg2:#181613;--bg3:#211f1b;--surface:#242119;--border:#332f28;
@@ -381,11 +411,12 @@ a:hover{opacity:.75}
 
 # ── HTML Builders ─────────────────────────────────────────────────────────────
 
+
 def story_card_html(rank: int, story: dict) -> str:
-    a     = story.get("analysis", {})
+    a = story.get("analysis", {})
     title = escape(story.get("title", "Untitled"))
-    url   = escape(story.get("url", "#") or "#")
-    pts   = story.get("points", 0)
+    url = escape(story.get("url", "#") or "#")
+    pts = story.get("points", 0)
     ncmts = story.get("num_comments", 0)
     hn_id = story.get("objectID", "")
 
@@ -398,18 +429,23 @@ def story_card_html(rank: int, story: dict) -> str:
     kp_html = ""
     if kps:
         items = "".join(f"<li>{escape(k)}</li>" for k in kps)
-        kp_html = (f'<div class="key-points">'
-                   f'<div class="key-points-title">Key Highlights</div>'
-                   f'<ul>{items}</ul></div>')
+        kp_html = (
+            f'<div class="key-points">'
+            f'<div class="key-points-title">Key Highlights</div>'
+            f"<ul>{items}</ul></div>"
+        )
 
     rows = ""
     for s in a.get("sentiments", []):
         rc = SENT_CLASS.get(s.get("type", "neutral"), "sent-neutral")
-        rows += (f'<tr class="{rc}">'
-                 f'<td>{escape(s.get("label", ""))}</td>'
-                 f'<td>{escape(s.get("description", ""))}</td>'
-                 f'<td><span class="vote-count">'
-                 f'{escape(str(s.get("estimated_agreement", "")))}''</span></td></tr>')
+        rows += (
+            f'<tr class="{rc}">'
+            f'<td>{escape(s.get("label", ""))}</td>'
+            f'<td>{escape(s.get("description", ""))}</td>'
+            f'<td><span class="vote-count">'
+            f'{escape(str(s.get("estimated_agreement", "")))}'
+            '</span></td></tr>'
+        )
 
     sent_html = ""
     if rows:
@@ -417,8 +453,8 @@ def story_card_html(rank: int, story: dict) -> str:
             f'<div class="sentiment-section">'
             f'<div class="sentiment-title">Comment Sentiment Analysis - {ncmts} comments</div>'
             f'<table class="sentiment-table">'
-            f'<thead><tr><th>Sentiment</th><th>Community View</th><th>Agree</th></tr></thead>'
-            f'<tbody>{rows}</tbody></table></div>'
+            f"<thead><tr><th>Sentiment</th><th>Community View</th><th>Agree</th></tr></thead>"
+            f"<tbody>{rows}</tbody></table></div>"
         )
 
     return f"""
@@ -442,10 +478,10 @@ def story_card_html(rank: int, story: dict) -> str:
 def others_table_html(stories: list) -> str:
     rows = ""
     for rank, story in stories:
-        a     = story.get("analysis", {})
+        a = story.get("analysis", {})
         title = escape(story.get("title", ""))
-        url   = escape(story.get("url", "#") or "#")
-        pts   = story.get("points", 0)
+        url = escape(story.get("url", "#") or "#")
+        pts = story.get("points", 0)
         ncmts = story.get("num_comments", 0)
         hn_id = story.get("objectID", "")
 
@@ -461,17 +497,21 @@ def others_table_html(stories: list) -> str:
             sdesc = escape(s.get("description", ""))
             agree = escape(str(s.get("estimated_agreement", "")))
             color = "#5a5446"
-            if stype == "positive": color = "#5a9e6f"
-            elif stype == "negative": color = "#c45c3a"
-            elif stype == "mixed": color = "#d4a017"
-            elif stype == "debate": color = "#8a6bbf"
+            if stype == "positive":
+                color = "#5a9e6f"
+            elif stype == "negative":
+                color = "#c45c3a"
+            elif stype == "mixed":
+                color = "#d4a017"
+            elif stype == "debate":
+                color = "#8a6bbf"
 
             sent_html += (
                 f'<div style="margin-top:8px; padding:6px 10px; background:rgba(255,255,255,0.03); border-left:2px solid {color}; border-radius:2px;">'
-                f'<span style="font-family:\'DM Mono\',monospace; font-size:10px; color:{color}; text-transform:uppercase; font-weight:600;">{slabel}</span> '
+                f"<span style=\"font-family:'DM Mono',monospace; font-size:10px; color:{color}; text-transform:uppercase; font-weight:600;\">{slabel}</span> "
                 f'<span style="font-size:11px; color:var(--text-dim); margin-left:6px;">{sdesc}</span> '
-                f'<span style="font-family:\'DM Mono\',monospace; font-size:10px; color:var(--amber); margin-left:8px;">({agree})</span>'
-                f'</div>'
+                f"<span style=\"font-family:'DM Mono',monospace; font-size:10px; color:var(--amber); margin-left:8px;\">({agree})</span>"
+                f"</div>"
             )
 
         rows += (
@@ -506,16 +546,10 @@ def others_table_html(stories: list) -> str:
 
 # ── UI Helpers ────────────────────────────────────────────────────────────────
 
-def get_navbar_html(manifest: dict, current_file: str = "") -> str:
-    """Generate a consistent navigation bar for all pages."""
-    entries = manifest.get("entries", [])
-    
-    date_opts = "\n".join(
-        f'<option value="{e["file"]}" {"selected" if e["file"] == current_file else ""}>{e["date"]} ({e["ranking"].upper()})</option>'
-        for e in entries
-    )
-    
-    return f"""
+
+def get_navbar_html() -> str:
+    """Generate a consistent navigation bar without history."""
+    return """
 <div class="nav-controls">
   <div class="nav-inner">
     <div class="toc" style="display:flex; align-items:center; gap:8px;">
@@ -526,23 +560,21 @@ def get_navbar_html(manifest: dict, current_file: str = "") -> str:
       <a href="#politics" class="pol"     style="font-family:'DM Mono',monospace; font-size:10px; padding:4px 10px; border-radius:3px; border:1px solid rgba(74,138,181,0.3); color:#7ab8e0;">Politics</a>
       <a href="#others"  class="others"  style="font-family:'DM Mono',monospace; font-size:10px; padding:4px 10px; border-radius:3px; border:1px solid var(--border); color:var(--text-dim);">Others</a>
     </div>
-    <div style="display:flex; gap:20px; align-items:center;">
-      <div class="ctrl-group">
-        <span class="ctrl-label">History</span>
-        <select class="ctrl-select" onchange="window.location.href=this.value" style="background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:4px; padding:4px 8px; font-family:'DM Mono',monospace; font-size:11px; cursor:pointer;">
-          <option value="#">Jump to...</option>
-          {date_opts}
-        </select>
-      </div>
-    </div>
   </div>
 </div>"""
 
-def wrap_with_layout(title: str, date_str: str, subtitle: str, content: str, navbar_html: str, manifest_json: str = "{}") -> str:
+
+def wrap_with_layout(
+    title: str, date_str: str, subtitle: str, content: str, navbar_html: str
+) -> str:
     """Master layout wrapper for all pages."""
-    model_str = CONFIG["deepseek_model"] if CONFIG["primary_provider"] == "deepseek" else CONFIG["gemini_model"]
+    model_str = (
+        CONFIG["deepseek_model"]
+        if CONFIG["primary_provider"] == "deepseek"
+        else CONFIG["gemini_model"]
+    )
     provider_str = CONFIG["primary_provider"].capitalize()
-    
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -571,149 +603,77 @@ def wrap_with_layout(title: str, date_str: str, subtitle: str, content: str, nav
     </p>
   </div>
 </div>
-<script>const MANIFEST = {manifest_json};</script>
 </body>
 </html>"""
 
 
 # ── Manifest & Retention ──────────────────────────────────────────────────────
 
-def load_manifest() -> dict:
-    if MANIFEST.exists():
-        try: return json.loads(MANIFEST.read_text())
-        except: pass
-    return {"entries": [], "files": []}
-
-def save_manifest(m: dict):
-    MANIFEST.write_text(json.dumps(m, indent=2))
-
-def update_manifest(target: date, filename: str, ranking: str, n: int, retention: int = 30) -> dict:
-    m = load_manifest()
-    
-    # Identify all physical report files (exclude index.html)
-    existing_files = {f.name for f in OUTPUT_DIR.glob("*.html") if f.name != "index.html"}
-    
-    # Sync manifest with disk
-    current_entries = [e for e in m["entries"] if e["file"] in existing_files]
-    
-    if target and filename:
-        date_iso = target.isoformat()
-        current_entries = [e for e in current_entries if not (e["date"] == date_iso and e["ranking"] == ranking)]
-        current_entries.insert(0, {
-            "date": date_iso, "file": filename,
-            "ranking": ranking, "story_count": n,
-        })
-    
-    current_entries.sort(key=lambda e: e["date"], reverse=True)
-    
-    if retention > 0 and len(current_entries) > retention:
-        to_keep = current_entries[:retention]
-        to_delete = current_entries[retention:]
-        for entry in to_delete:
-            fpath = OUTPUT_DIR / entry["file"]
-            if fpath.exists(): fpath.unlink()
-        
-        # Also clean up orphan HTML files
-        keep_filenames = {e["file"] for e in to_keep}
-        for fname in existing_files:
-            if fname not in keep_filenames and (not filename or fname != filename):
-                fpath = OUTPUT_DIR / fname
-                if fpath.exists(): fpath.unlink()
-        
-        current_entries = to_keep
-
-    m["entries"] = current_entries
-    m["files"] = [e["file"] for e in current_entries]
-    save_manifest(m)
-    return m
+# Manifest logic removed as per user request to remove data persistency.
 
 # ── Page Templates ─────────────────────────────────────────────────────────────
 
-def build_page(target: date, stories: list, ranking: str, manifest: dict) -> str:
+
+def build_index(stories: list, target: date, ranking: str) -> str:
     cats: dict[str, list] = {
-        "AI Fundamentals": [], "AI Applications": [], "Tech": [], "Politics": [], "Others": []
+        "AI Fundamentals": [],
+        "AI Applications": [],
+        "Tech": [],
+        "Politics": [],
+        "Others": [],
     }
     for i, s in enumerate(stories):
         cat = s.get("analysis", {}).get("topic_category", "Others")
-        if cat not in cats: cat = "Others"
+        if cat not in cats:
+            cat = "Others"
         cats[cat].append((i + 1, s))
 
     sections = ""
     for cat, items in cats.items():
-        if not items: continue
+        if not items:
+            continue
         sid, bid = SECTION_ID[cat], BADGE_CLASS[cat]
         sections += f'<div class="section-header" id="{sid}"><span class="section-badge {bid}">{escape(cat)}</span><div class="section-line"></div></div>\n'
-        if cat == "Others": sections += others_table_html(items)
+        if cat == "Others":
+            sections += others_table_html(items)
         else:
-            for rank, story in items: sections += story_card_html(rank, story)
+            for rank, story in items:
+                sections += story_card_html(rank, story)
 
-    date_iso  = target.isoformat()
-    date_str  = target.strftime("%A, %B %d, %Y").upper()
-    filename  = f"{date_iso}{'-' + ranking if ranking != 'best' else ''}.html"
-    navbar_html = get_navbar_html(manifest, current_file=filename)
-    
-    return wrap_with_layout(
-        title=f"HN Digest - {date_iso}",
-        date_str=date_str,
-        subtitle=f"TOP {len(stories)} - {ranking.upper()}",
-        content=sections,
-        navbar_html=navbar_html,
-        manifest_json=json.dumps(manifest)
-    )
+    date_str = target.strftime("%A, %B %d, %Y").upper()
+    navbar_html = get_navbar_html()
 
+    content = f'<div style="margin-top:48px; text-align:center;"><div class="latest-label">Latest Briefing</div></div>{sections}'
 
-def build_index(manifest: dict, latest_stories: list, latest_target: date, latest_ranking: str) -> str:
-    cats: dict[str, list] = {
-        "AI Fundamentals": [], "AI Applications": [], "Tech": [], "Politics": [], "Others": []
-    }
-    for i, s in enumerate(latest_stories):
-        cat = s.get("analysis", {}).get("topic_category", "Others")
-        if cat not in cats: cat = "Others"
-        cats[cat].append((i + 1, s))
-
-    latest_sections = ""
-    for cat, items in cats.items():
-        if not items: continue
-        sid, bid = SECTION_ID[cat], BADGE_CLASS[cat]
-        latest_sections += f'<div class="section-header" id="{sid}"><span class="section-badge {bid}">{escape(cat)}</span><div class="section-line"></div></div>\n'
-        if cat == "Others": latest_sections += others_table_html(items)
-        else:
-            for rank, story in items: latest_sections += story_card_html(rank, story)
-
-    date_str = latest_target.strftime("%A, %B %d, %Y").upper()
-    navbar_html = get_navbar_html(manifest, current_file="index.html")
-
-    content = f'<div style="margin-top:48px; text-align:center;"><div class="latest-label">Latest Briefing</div></div>{latest_sections}'
-    
     return wrap_with_layout(
         title="HN Daily Digest",
         date_str=date_str,
-        subtitle=f"TOP {len(latest_stories)} - {latest_ranking.upper()}",
+        subtitle=f"TOP {len(stories)} - {ranking.upper()}",
         content=content,
-        navbar_html=navbar_html
+        navbar_html=navbar_html,
     )
 
 
 # ── Entry Point ───────────────────────────────────────────────────────────────
 
-def run(target: date, ranking: str, n_stories: int, retention: int = 30):
-    print(f"  Date={target}  Ranking={ranking}  Stories={n_stories}  Retention={retention}")
+
+def run(target: date, ranking: str, n_stories: int):
+    print(f"  Date={target}  Ranking={ranking}  Stories={n_stories}")
 
     print("  Fetching story list...")
     stories = get_stories_for_date(target, n=n_stories, ranking=ranking)
-    
-    filename = None
+
     if stories:
         print(f"  Found {len(stories)} stories. Starting analysis...")
         for i, story in enumerate(stories):
             title = story.get("title", "")[:65]
             print(f"  [{i+1:02}/{len(stories)}] {title}")
-            hn_id    = story.get("objectID", "")
-            
+            hn_id = story.get("objectID", "")
+
             t0 = time.time()
-            article  = fetch_article(story.get("url", ""))
+            article = fetch_article(story.get("url", ""))
             t_article = time.time() - t0
-            
+
             t0 = time.time()
             comments = get_top_comments(int(hn_id)) if hn_id else []
             t_comments = time.time() - t0
@@ -722,54 +682,41 @@ def run(target: date, ranking: str, n_stories: int, retention: int = 30):
             try:
                 story["analysis"] = analyze_story(story, article, comments)
                 t_ai = time.time() - t0
-                print(f"         ⏱  Scrape: {t_article:.1f}s | HN: {t_comments:.1f}s | AI: {t_ai:.1f}s")
+                print(
+                    f"         ⏱  Scrape: {t_article:.1f}s | HN: {t_comments:.1f}s | AI: {t_ai:.1f}s"
+                )
             except Exception as e:
                 print(f"         ⚠ Analysis error: {e}")
                 story["analysis"] = {
-                    "topic_category":    "Others",
-                    "summary_paragraphs": [story.get("title", ""), "Analysis unavailable."],
-                    "highlight": "", "key_points": [], "sentiments": [],
+                    "topic_category": "Others",
+                    "summary_paragraphs": [
+                        story.get("title", ""),
+                        "Analysis unavailable.",
+                    ],
+                    "highlight": "",
+                    "key_points": [],
+                    "sentiments": [],
                 }
-            time.sleep(2.0)   # stay within 15 RPM Free Tier limit
+            time.sleep(2.0)  # stay within 15 RPM Free Tier limit
 
-        suffix   = f"-{ranking}" if ranking != "best" else ""
-        filename = f"{target.isoformat()}{suffix}.html"
-        
-        # Build the daily page using current manifest + this run
-        m = load_manifest()
-        tmp_entries = [{"date": target.isoformat(), "file": filename, "ranking": ranking, "story_count": len(stories)}]
-        for e in m["entries"]:
-            if not (e["date"] == target.isoformat() and e["ranking"] == ranking):
-                tmp_entries.append(e)
-        tmp_entries.sort(key=lambda x: x["date"], reverse=True)
-        
-        html = build_page(target, stories, ranking, {"entries": tmp_entries})
-        (OUTPUT_DIR / filename).write_text(html, encoding="utf-8")
-        print(f"  ✔ {OUTPUT_DIR / filename}")
-    else:
-        print("  ⚠ No stories found for today.")
-
-    # Always update manifest (to enforce retention) and rebuild index
-    manifest = update_manifest(target if stories else None, filename, ranking, len(stories), retention=retention)
-    
-    # Decide what stories to show on the index page
-    index_stories, index_target, index_ranking = (stories, target, ranking) if stories else ([], target, ranking)
-
-    (OUTPUT_DIR / "index.html").write_text(build_index(manifest, index_stories, index_target, index_ranking), encoding="utf-8")
-    print("  ✔ index.html + manifest.json (Retention applied)")
+    # Only generate index.html, no archives or manifest.
+    (OUTPUT_DIR / "index.html").write_text(
+        build_index(stories, target, ranking), encoding="utf-8"
+    )
+    print("  ✔ index.html (Data persistency removed)")
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--date",    default=None)
+    ap.add_argument("--date", default=None)
     ap.add_argument("--ranking", default="top", choices=list(RANKING_TAGS.keys()))
     ap.add_argument("--stories", default=20, type=int)
-    ap.add_argument("--retention", default=30, type=int, help="Number of days to keep in archive")
     args = ap.parse_args()
 
-    target = (date.fromisoformat(args.date) if args.date
-              else date.today() - timedelta(days=1))
-    run(target, args.ranking, args.stories, args.retention)
+    target = (
+        date.fromisoformat(args.date) if args.date else date.today() - timedelta(days=1)
+    )
+    run(target, args.ranking, args.stories)
 
 
 if __name__ == "__main__":

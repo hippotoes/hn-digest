@@ -10,7 +10,7 @@ Top 20 Hacker News stories every day — 300-word summaries, highlights, and com
 
 ### Step 1 — Fork or create this repo on GitHub
 
-Push all files to the `main` branch of a **public** GitHub repository.  
+Push all files to the `main` branch of a **public** GitHub repository.
 *(Public repos get free GitHub Pages and free Actions minutes.)*
 
 ### Step 2 — Add your Gemini API key
@@ -32,7 +32,7 @@ That's it. GitHub Actions will handle everything else automatically.
 3. GitHub Pages is **auto-configured** by the workflow — no manual Pages settings needed.
 4. From day 2 onward, the digest runs **automatically every morning at 08:00 UTC**.
 
-Your site will be live at:  
+Your site will be live at:
 `https://<your-username>.github.io/<repo-name>/`
 
 ---
@@ -114,7 +114,7 @@ python generate_daily.py
 
 ## Manual backfill
 
-Trigger the workflow manually with **backfill_days = 30** to generate the last 30 days at once.  
+Trigger the workflow manually with **backfill_days = 30** to generate the last 30 days at once.
 Each day costs ~$0.01–0.05 with `gemini-2.0-flash`.
 
 ---
