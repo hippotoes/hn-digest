@@ -92,7 +92,6 @@ jobs:
             --date    "${{ steps.params.outputs.date }}"    \
             --ranking "${{ steps.params.outputs.ranking }}" \
             --stories "${{ steps.params.outputs.stories }}" \
-            --retention "${{ steps.params.outputs.retention }}"
 
       # ── 6. Commit Manifest ───────────────────────────────────────────────
       - name: Commit manifest.json
