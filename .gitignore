@@ -1,3 +1,9 @@
 .DS_Store
 site/*.html
 !site/index.html
+node_modules
+.env
+.env.local
+.env.*
+app/playwright-report/
+app/test-results/

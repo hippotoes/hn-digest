@@ -1,0 +1,7 @@
+@import "tailwindcss";
+
+@theme {
+  --font-serif: var(--font-source-serif), Georgia, serif;
+  --font-heading: var(--font-playfair), serif;
+  --font-mono: var(--font-dm-mono), monospace;
+}

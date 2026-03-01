@@ -7,7 +7,7 @@
 **Goal:** A functional end-to-end pipeline (Fetch -> Analyze -> Store -> View).
 - **Core Tasks:**
   - Setup Docker Orchestration (App, DB, Worker, Redis).
-  - Basic Scraper: Fetch top 10 HN stories and extract text via Trafilatura.
+  - Basic Scraper: Fetch top 10 HN stories and extract text via Trafilatura using a synchronous loop.
   - Basic Inference: Single LLM call (Gemini) for a simple summary.
   - Basic Persistence: Store story and summary in Postgres.
   - Basic API: Hono-based endpoint for fetching the daily digest.

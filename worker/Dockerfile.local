@@ -1,0 +1,12 @@
+FROM node:22-bullseye
+
+# Install trafilatura via Python
+RUN apt-get update && apt-get install -y python3 python3-pip && rm -rf /var/lib/apt/lists/*
+RUN pip3 install trafilatura lxml_html_clean
+
+WORKDIR /app
+
+# For local development, we will mount the code via volumes,
+# but we need to ensure node_modules can be installed or cached.
+# We just provide a running container with the right environment.
+CMD ["sh", "-c", "npm install && npm run dev --workspace=@hn-digest/worker"]

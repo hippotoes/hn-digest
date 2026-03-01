@@ -1,0 +1,26 @@
+{
+  "name": "@hn-digest/worker",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "start": "ts-node src/index.ts",
+    "dev": "nodemon src/index.ts",
+    "test:mvp": "npx -y tsx test-mvp.ts"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.11.1",
+    "@hn-digest/db": "*",
+    "bullmq": "^5.7.8",
+    "ioredis": "^5.4.1",
+    "pg": "^8.19.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.12",
+    "@types/pg": "^8.18.0",
+    "nodemon": "^3.1.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5"
+  }
+}

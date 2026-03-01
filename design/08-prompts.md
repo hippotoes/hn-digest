@@ -10,11 +10,10 @@
 
 ### Prompt 1.2: Basic Scraper & Inference Pipeline
 > **Prompt:** "Act as a Senior Backend Engineer. Implement a simplified version of Module A and Module B.
-> 1. Create a worker that fetches the top 10 HN stories and uses `Trafilatura` (Python) to extract text.
+> 1. Create a synchronous script that fetches the top 10 HN stories and uses `Trafilatura` (Python) to extract text.
 > 2. Pass this text to `Gemini-2.0-Flash` to generate a 100-word summary.
 > 3. Store the story and its summary in the Postgres database using Drizzle.
 > 4. **Verification:** Run the automated `test:mvp` script. It must confirm the end-to-end flow from story fetch to DB persistence without human intervention."
-
 ### Prompt 1.3: MVP Frontend Display
 > **Prompt:** "Act as a Senior Frontend Engineer. Build the `DailyDigestPage` in Next.js.
 > 1. Fetch the stored stories and summaries from the DB on the server.
