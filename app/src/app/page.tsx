@@ -1,19 +1,23 @@
 import { db } from '@/db';
 import { stories, analyses, sentiments, bookmarks } from '@hn-digest/db';
-import { eq, desc, and, inArray } from 'drizzle-orm';
+import { eq, desc, and, inArray, sql } from 'drizzle-orm';
 import { auth } from "@/auth";
 import { logoutAction } from "./actions";
 import Link from 'next/link';
 import BookmarkButton from '@/components/BookmarkButton';
+import CalendarNav from '@/components/CalendarNav';
 
 export default async function DailyDigestPage({
   searchParams,
 }: {
-  searchParams: Promise<{ view?: string }>
+  searchParams: Promise<{ view?: string; date?: string }>
 }) {
   const session = await auth();
-  const { view } = await searchParams;
+  const { view, date: selectedDate } = await searchParams;
   const isSavedView = view === 'saved';
+
+  // Date logic: prioritize selectedDate, fallback to latest
+  const targetDate = selectedDate || new Date().toISOString().split('T')[0];
 
   // Base query: fetch stories joined with analysis
   let query = db
@@ -23,6 +27,7 @@ export default async function DailyDigestPage({
     })
     .from(stories)
     .innerJoin(analyses, eq(stories.id, analyses.storyId))
+    .where(sql`date_trunc('day', ${analyses.createdAt})::date = ${targetDate}`)
     .orderBy(desc(stories.points));
 
   // If in "Saved" view, filter by user bookmarks
@@ -63,10 +68,14 @@ export default async function DailyDigestPage({
         <div>
           <h1 className="font-heading text-4xl font-bold mb-2">Hacker News <span className="text-[#d4a017]">Digest</span></h1>
           <nav className="flex gap-4 items-center">
-            <p className="text-[#9c9285] font-mono text-sm uppercase tracking-widest">Intelligence Briefing</p>
+            <p className="text-[#9c9285] font-mono text-sm uppercase tracking-widest">
+              {isSavedView ? 'Library' : `Briefing: ${targetDate}`}
+            </p>
             <span className="text-[#332f28]">|</span>
             <Link href="/" className={`text-[10px] font-mono uppercase ${!isSavedView ? 'text-[#d4a017]' : 'text-[#5c564d] hover:text-[#9c9285]'}`}>Latest</Link>
             <Link href="/?view=saved" className={`text-[10px] font-mono uppercase ${isSavedView ? 'text-[#d4a017]' : 'text-[#5c564d] hover:text-[#9c9285]'}`}>Bookmarks</Link>
+            <span className="text-[#332f28]">|</span>
+            <CalendarNav />
           </nav>
         </div>
 
@@ -146,7 +155,10 @@ export default async function DailyDigestPage({
         })}
 
         {digestItems.length === 0 && (
-          <p className="text-[#9c9285] italic text-center py-20 font-mono uppercase tracking-widest">No entries found.</p>
+          <div className="text-center py-20 font-mono uppercase tracking-widest space-y-4">
+            <p className="text-[#9c9285] italic">No entries found for this date.</p>
+            <p className="text-[#5c564d] text-[10px]">Please select an active date from the archive.</p>
+          </div>
         )}
       </div>
 

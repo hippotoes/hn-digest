@@ -19,6 +19,17 @@ const app = new Hono().basePath('/api');
 
 app.get('/ping', (c) => c.json({ status: 'ok', time: new Date().toISOString() }));
 
+app.get('/v1/digests/manifest', async (c) => {
+  try {
+    const result = await db.execute(sql`SELECT digest_date FROM digest_manifest ORDER BY digest_date DESC`);
+    const dates = result.map((r: any) => r.digest_date);
+    return c.json({ success: true, data: dates });
+  } catch (error) {
+    console.error('Failed to fetch manifest:', error);
+    return c.json({ success: false, error: 'Internal Server Error' }, 500);
+  }
+});
+
 app.get('/v1/digests/daily/latest', async (c) => {
   try {
     const digestItems = await db

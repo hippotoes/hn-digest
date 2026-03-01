@@ -10,8 +10,16 @@ export const connection = new Redis(redisUrl, { maxRetriesPerRequest: null });
 
 export const storyQueue = new Queue<ScrapedStory, any, string>('story-queue', { connection });
 
-export async function processJob(job: Job<ScrapedStory>) {
-  const story = job.data;
+import { sql } from 'drizzle-orm';
+
+export async function processJob(job: Job) {
+  if (job.name === 'refresh-manifest') {
+    console.log('[Worker] Refreshing digest_manifest view...');
+    await db.execute(sql`REFRESH MATERIALIZED VIEW CONCURRENTLY digest_manifest`);
+    return;
+  }
+
+  const story = job.data as ScrapedStory;
   console.log(`[Worker] Processing job for story: ${story.title}`);
 
   try {

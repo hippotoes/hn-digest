@@ -17,7 +17,9 @@ export async function runScraperAndEnqueue() {
     });
   }
 
-  console.log('🎉 All stories queued! Worker will process them in the background.');
+  await storyQueue.add('refresh-manifest', {}, { jobId: 'refresh-manifest', priority: 1 });
+
+  console.log('🎉 All stories queued and manifest refresh scheduled!');
 }
 
 // Check if running as a standalone script
