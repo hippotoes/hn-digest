@@ -8,14 +8,13 @@ import { Queue } from 'bullmq';
 
 export const runtime = 'nodejs';
 
-const redisUrl = process.env.REDIS_URL || 'redis://localhost:6381';
+const redisUrl = process.env.REDIS_URL || 'redis://redis:6379';
 const notificationQueue = new Queue('notification-queue', {
   connection: {
-    host: new URL(redisUrl).hostname,
-    port: parseInt(new URL(redisUrl).port) || 6379,
+    host: 'redis',
+    port: 6379,
   }
 });
-
 const app = new Hono().basePath('/api');
 
 app.get('/ping', (c) => c.json({ status: 'ok', time: new Date().toISOString() }));

@@ -37,6 +37,7 @@ export const users = pgTable("user", {
     .$defaultFn(() => crypto.randomUUID()),
   name: text("name"),
   email: text("email").unique(),
+  passwordHash: text("password_hash"), // Added for Stage 4
   emailVerified: timestamp("emailVerified", { mode: "date" }),
   image: text("image"),
 })
@@ -95,7 +96,9 @@ export const bookmarks = pgTable("bookmark", {
   storyId: text("storyId")
     .notNull()
     .references(() => stories.id, { onDelete: "cascade" }),
+  isActive: boolean("is_active").default(true), // Added for Stage 5
   createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
 })
 
 export const preferences = pgTable("preference", {

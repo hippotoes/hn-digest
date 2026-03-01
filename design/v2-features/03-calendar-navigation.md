@@ -2,7 +2,7 @@
 **Objective:** Navigate historical digests via a calendar UI restricted to "available" dates.
 
 ## 1. Technical Strategy
-*   **Availability Manifest:** To avoid expensive full-table scans every time the calendar opens, we implement a background task that calculates unique dates from the `analyses` table.
+*   **Availability Manifest:** To avoid expensive full-table scans every time the calendar opens, we implement a **Postgres Materialized View** that calculates unique dates from the `analyses` table. This view is refreshed concurrently nightly.
 *   **API Endpoint:** `GET /api/v1/digests/manifest`
     *   Returns: `string[]` (ISO date strings like `["2026-02-28", "2026-03-01"]`).
 *   **Calendar Component:**

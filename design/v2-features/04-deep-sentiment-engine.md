@@ -13,7 +13,7 @@ High-engagement HN stories can have 500+ comments (100k+ tokens). This exceeds s
 ## 3. Implementation Workflow
 1.  **Scraper Engine:** Update `scraper.ts` to recursively fetch children IDs from HN.
 2.  **Worker Pipeline:**
-    *   Add a new `process-comments` BullMQ task.
+    *   Implement **BullMQ Flows** (Parent/Child jobs) to orchestrate the dependency between comment extraction and synthesis.
     *   Implement the chunking and recursive reduction logic.
 3.  **Prompt Update:** Refine the "Sentiment Synthesis" prompt to enforce the 4-cluster requirement with 100-word descriptions.
 

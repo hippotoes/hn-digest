@@ -1,8 +1,10 @@
 import { db } from '@/db';
 import { stories, analyses, sentiments, bookmarks } from '@hn-digest/db';
-import { eq, desc, and, or, inArray } from 'drizzle-orm';
+import { eq, desc, and, inArray } from 'drizzle-orm';
 import { auth } from "@/auth";
-import { loginAction, logoutAction, bookmarkAction } from "./actions";
+import { logoutAction } from "./actions";
+import Link from 'next/link';
+import BookmarkButton from '@/components/BookmarkButton';
 
 export default async function DailyDigestPage({
   searchParams,
@@ -33,7 +35,7 @@ export default async function DailyDigestPage({
       .from(bookmarks)
       .innerJoin(stories, eq(bookmarks.storyId, stories.id))
       .innerJoin(analyses, eq(stories.id, analyses.storyId))
-      .where(eq(bookmarks.userId, session.user.id))
+      .where(and(eq(bookmarks.userId, session.user.id), eq(bookmarks.isActive, true)))
       .orderBy(desc(stories.points)) as any;
   }
 
@@ -45,6 +47,16 @@ export default async function DailyDigestPage({
     ? await db.select().from(sentiments).where(inArray(sentiments.analysisId, analysisIds))
     : [];
 
+  // Fetch current user's active bookmarks to set initial state
+  const activeBookmarkIds = new Set<string>();
+  if (session?.user?.id) {
+    const userBookmarks = await db
+      .select({ storyId: bookmarks.storyId })
+      .from(bookmarks)
+      .where(and(eq(bookmarks.userId, session.user.id), eq(bookmarks.isActive, true)));
+    userBookmarks.forEach(b => activeBookmarkIds.add(b.storyId));
+  }
+
   return (
     <main className="min-h-screen bg-[#0f0e0c] text-[#e8e2d6] font-serif p-8">
       <header className="max-w-4xl mx-auto mb-12 border-b border-[#332f28] pb-6 flex justify-between items-end">
@@ -53,8 +65,8 @@ export default async function DailyDigestPage({
           <nav className="flex gap-4 items-center">
             <p className="text-[#9c9285] font-mono text-sm uppercase tracking-widest">Intelligence Briefing</p>
             <span className="text-[#332f28]">|</span>
-            <a href="/" className={`text-[10px] font-mono uppercase ${!isSavedView ? 'text-[#d4a017]' : 'text-[#5c564d] hover:text-[#9c9285]'}`}>Latest</a>
-            <a href="/?view=saved" className={`text-[10px] font-mono uppercase ${isSavedView ? 'text-[#d4a017]' : 'text-[#5c564d] hover:text-[#9c9285]'}`}>Bookmarks</a>
+            <Link href="/" className={`text-[10px] font-mono uppercase ${!isSavedView ? 'text-[#d4a017]' : 'text-[#5c564d] hover:text-[#9c9285]'}`}>Latest</Link>
+            <Link href="/?view=saved" className={`text-[10px] font-mono uppercase ${isSavedView ? 'text-[#d4a017]' : 'text-[#5c564d] hover:text-[#9c9285]'}`}>Bookmarks</Link>
           </nav>
         </div>
 
@@ -67,9 +79,9 @@ export default async function DailyDigestPage({
               </form>
             </div>
           ) : (
-            <form action={loginAction}>
-              <button type="submit" className="hover:text-white border border-[#332f28] px-2 py-1 rounded" id="login-btn">Login</button>
-            </form>
+            <Link href="/auth" className="hover:text-white border border-[#332f28] px-3 py-1 rounded" id="login-link">
+              Authenticate
+            </Link>
           )}
         </div>
       </header>
@@ -89,11 +101,10 @@ export default async function DailyDigestPage({
                   </a>
                 </h2>
                 {session && (
-                  <form action={bookmarkAction.bind(null, story.id)}>
-                    <button type="submit" className="text-[#332f28] group-hover:text-[#9c9285] hover:!text-[#d4a017] transition-colors p-1 text-xl" title="Bookmark">
-                      🔖
-                    </button>
-                  </form>
+                  <BookmarkButton
+                    storyId={story.id}
+                    initialIsActive={activeBookmarkIds.has(story.id)}
+                  />
                 )}
               </div>
 

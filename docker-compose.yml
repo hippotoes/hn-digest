@@ -41,7 +41,8 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
       - AUTH_SECRET=${AUTH_SECRET}
-      - NEXTAUTH_URL=http://localhost:3005
+      - NEXTAUTH_URL=http://127.0.0.1:3005
+      - AUTH_TRUST_HOST=true
     depends_on:
       db:
         condition: service_healthy

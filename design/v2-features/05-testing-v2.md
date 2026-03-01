@@ -14,8 +14,7 @@
 
 ## 3. Calendar Data Integrity
 > **Prompt:** "Act as a Data Engineer.
-> 1. Assert that the `available-dates` manifest API does not include dates with 0 analyses.
-> 2. Verify that selecting a date in the past correctly loads that specific day's digest via the Hono API."
+> 1. Assert that the `GET /api/v1/digests/manifest` API does not include dates with 0 analyses.> 2. Verify that selecting a date in the past correctly loads that specific day's digest via the Hono API."
 
 ## 4. Map-Reduce Sentiment Audit
 > **Prompt:** "Act as an AI Specialist.

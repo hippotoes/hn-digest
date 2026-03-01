@@ -13,7 +13,7 @@ export const users = pgTable("user", {
 ```
 
 ## 2. Technical Strategy
-*   **Hashing:** Use `argon2` or `bcrypt` (Argon2id is the current SOTA recommendation).
+*   **Hashing:** Use `argon2` (Argon2id is the current SOTA recommendation).
 *   **NextAuth Integration:**
     *   Transition `auth.ts` to use a real `authorize` function.
     *   Implement a `SignupAction` server action to handle user creation.
