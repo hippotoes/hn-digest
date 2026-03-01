@@ -6,20 +6,20 @@
 ## Stage 1: The Containerized MVP
 
 ### Prompt 1.1: Foundations & Scaffolding
-> **Prompt:** "Act as a Staff Platform Engineer. Initialize the `hn-digest` project using Next.js 15, Hono, Drizzle ORM, and Tailwind CSS. Create a `docker-compose.yml` defining an `app` (Next.js/Hono), `worker` (Node service), `db` (PostgreSQL 16 with pgvector), and `redis` (BullMQ host). Setup the basic folder structure as per the design docs, including a `db/schema.ts`. Verify by running `docker-compose up` and performing a simple 'select 1' query from the `app` container to the `db` container."
+> **Prompt:** "Act as a Staff Platform Engineer. Initialize the `hn-digest` project using Next.js 15, Hono, Drizzle ORM, and Tailwind CSS. Create a `docker-compose.yml` defining an `app` (Next.js/Hono), `worker` (Node service), `db` (PostgreSQL 16 with pgvector), and `redis` (BullMQ host). Setup the basic folder structure as per the design docs, including a `db/schema.ts`. **Verification:** Run `docker-compose up` and execute a script to confirm all 4 containers are healthy and the DB is reachable."
 
 ### Prompt 1.2: Basic Scraper & Inference Pipeline
 > **Prompt:** "Act as a Senior Backend Engineer. Implement a simplified version of Module A and Module B.
 > 1. Create a worker that fetches the top 10 HN stories and uses `Trafilatura` (Python) to extract text.
 > 2. Pass this text to `Gemini-2.0-Flash` to generate a 100-word summary.
 > 3. Store the story and its summary in the Postgres database using Drizzle.
-> 4. Verify by running the worker once via `docker-compose exec worker node ...` and checking the database for the results."
+> 4. **Verification:** Run the automated `test:mvp` script. It must confirm the end-to-end flow from story fetch to DB persistence without human intervention."
 
 ### Prompt 1.3: MVP Frontend Display
 > **Prompt:** "Act as a Senior Frontend Engineer. Build the `DailyDigestPage` in Next.js.
 > 1. Fetch the stored stories and summaries from the DB on the server.
 > 2. Render them in a clean, Serif-themed layout (headings and body text).
-> 3. Verify locally by visiting `localhost:3000` and ensuring today's stories are visible."
+> 3. **Verification:** Run a Playwright smoke test (`npx playwright test --grep @mvp`) to confirm the daily digest list renders at least 1 story correctly on `localhost:3000`."
 
 ---
 
@@ -30,14 +30,13 @@
 > 1. Implement the 300-word technical summary and 4 distinct sentiment clusters as defined in `design/02-inference-orchestrator.md`.
 > 2. Integrate `Zod` for schema validation and the `json-repair` utility.
 > 3. Implement the one-time 'Repair Call' logic.
-> 4. Verify by running integration tests with `MOCK_LLM=true` and then with the real Gemini API for one story."
+> 4. **Verification:** Run `test:intelligence`. This automated script must verify the JSON schema against 10 mock responses and 1 real LLM response."
 
 ### Prompt 2.2: Vectorization & Semantic Search
 > **Prompt:** "Act as a Database Engineer.
 > 1. Add embedding generation (`text-embedding-004`) to the analysis pipeline.
 > 2. Implement the hybrid search API in Hono (`GET /api/v1/search`) that combines keyword matching and vector similarity using `pgvector`.
-> 3. Verify locally by inserting a test story and searching for it using semantic keywords (e.g., 'Rust memory safety' for a Rust-related story)."
-
+> 3. **Verification:** Run an automated search test script that inserts a control story, performs a semantic search, and asserts that the control story is in the top 3 results."
 ---
 
 ## Stage 3: Enterprise Polish & Hardening

@@ -18,12 +18,13 @@ This document defines the foundational mandates and technical standards for the 
 - **Scraper:** Node-based with a Python bridge to `Trafilatura` for text extraction.
 
 ## 3. Workflow & Routine
-Follow the 5-step loop for every task:
+Follow the 6-step loop for every task:
 1. **Context Alignment:** Read module docs in `design/`.
 2. **Isolated Implementation:** Develop within Docker containers.
-3. **Local Verification:** Run `docker-compose run --rm worker npm test` and manual checks.
-4. **Documentation & Schema Sync:** Update `db/schema.ts` and `design/*.md` as needed.
-5. **Commit:** Ensure `pre-commit` hooks pass.
+3. **Automated Verification (Mandatory):** Every implementation sub-task MUST include a verification script (test, curl, or health-check) executed autonomously by you. No human intervention is permitted for stage-level validation.
+4. **Human-in-the-Loop (HITL) Sign-Off:** Present the relevant "HITL Quality Gates" (from `design/06-testing-framework.md`) to the user and wait for their explicit approval before considering the stage complete.
+5. **Documentation & Schema Sync:** Update `db/schema.ts` and `design/*.md` as needed.
+6. **Commit:** Ensure `pre-commit` hooks pass.
 
 ## 4. Engineering Standards
 - **TypeScript:** Strict mode, no `any`, interfaces over types.
