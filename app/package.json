@@ -3,18 +3,22 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "NEXT_TURBOPACK=0 next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
     "test:unit": "vitest run"
   },
   "dependencies": {
+    "@auth/drizzle-adapter": "^1.11.1",
     "@google/generative-ai": "^0.24.1",
     "@hn-digest/db": "^1.0.0",
+    "bullmq": "^5.70.1",
     "drizzle-orm": "^0.33.0",
     "hono": "^4.12.3",
+    "ioredis": "^5.10.0",
     "next": "16.1.6",
+    "next-auth": "^5.0.0-beta.30",
     "pg": "^8.19.0",
     "postgres": "^3.4.8",
     "react": "19.2.3",

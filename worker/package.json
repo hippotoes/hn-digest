@@ -8,16 +8,19 @@
     "dev": "tsx watch src/index.ts",
     "test:mvp": "npx -y tsx test-mvp.ts",
     "test:intelligence": "npx -y tsx test-intelligence.ts",
+    "test:full": "npx -y tsx test-full.ts",
     "test:unit": "vitest run"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "@hn-digest/db": "*",
+    "@hono/node-server": "^1.19.9",
     "bullmq": "^5.70.1",
     "ioredis": "^5.10.0",
     "jsonrepair": "^3.13.2",
     "openai": "^6.25.0",
     "pg": "^8.19.0",
+    "resend": "^6.9.3",
     "zod": "^3.23.8"
   },
   "devDependencies": {

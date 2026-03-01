@@ -1,5 +1,6 @@
 import { fetchTopHNStories } from './scraper';
 import { storyQueue, worker, connection } from './queue';
+import './notifier'; // Start notification worker
 
 export async function runScraperAndEnqueue() {
   console.log('🚀 Starting Stage 2 Pipeline (Scraper -> Queue)...');
