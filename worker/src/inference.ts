@@ -1,8 +1,8 @@
-import { ScrapedStory } from './scraper';
+import { ScrapedStory, CommentDTO } from './scraper';
 import { z } from 'zod';
 import { jsonrepair } from 'jsonrepair';
 import OpenAI from 'openai';
-import { GoogleGenerativeAI } from '@google/generative-ai'; // Keep for embeddings if DeepSeek doesn't do vectors well
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export const SentimentClusterSchema = z.object({
   label: z.string(),
@@ -16,8 +16,12 @@ export const AnalysisDTOSchema = z.object({
   summary_paragraphs: z.array(z.string()).min(2),
   highlight: z.string(),
   key_points: z.array(z.string()),
-  sentiments: z.array(SentimentClusterSchema).min(1).max(6)
+  article_sentiment: SentimentClusterSchema, // Single sentiment for the article
+  community_sentiments: z.array(SentimentClusterSchema).min(3).max(4) // 3-4 clusters for comments
 });
+
+export type AnalysisDTO = z.infer<typeof AnalysisDTOSchema>;
+
 export async function extractArguments(comments: CommentDTO[]): Promise<string> {
   if (process.env.MOCK_LLM === 'true') return "[MOCK SIGNAL] Key technical concerns about memory safety and performance.";
 
@@ -45,32 +49,8 @@ export async function extractArguments(comments: CommentDTO[]): Promise<string> 
   }
 }
 
-export async function summarizeSignals(story: ScrapedStory, signals: string[]): Promise<AnalysisDTO> {
-  const apiKey = process.env.DEEPSEEK_API_KEY || '';
-  if (!apiKey) throw new Error('DEEPSEEK_API_KEY is not set.');
-
-  const openai = new OpenAI({ baseURL: 'https://api.deepseek.com', apiKey });
-
-  const systemMessage = `
-    You are a Staff Engineer. Synthesize these intermediate community signals into exactly 4 distinct sentiment clusters (~100 words each).
-    Each cluster MUST describe a specific cohort of the community and quote visible terminology.
-    Return ONLY valid JSON.
-  `;
-
-  const userMessage = `
-    STORY: ${story.title}
-    SIGNALS:
-    ${signals.join('\n\n')}
-  `;
-
-  // ... (rest of logic similar to generateAnalysis but with summarized input)
-  // I will refactor generateAnalysis to handle this synthesis
-  return generateAnalysis(story, signals.join('\n\n'));
-}
-
 export async function generateAnalysis(story: ScrapedStory, combinedSignals?: string): Promise<AnalysisDTO> {
   if (process.env.MOCK_LLM === 'true') {
-...
     return {
       topic: 'Tech',
       summary_paragraphs: [
@@ -79,57 +59,55 @@ export async function generateAnalysis(story: ScrapedStory, combinedSignals?: st
       ],
       highlight: 'A great highlight here.',
       key_points: ['Point 1', 'Point 2'],
-      sentiments: [
+      article_sentiment: { label: 'Article Tone', type: 'positive', description: 'Technical and optimistic.', estimated_agreement: 'N/A' },
+      community_sentiments: [
         { label: 'Positive', type: 'positive', description: 'People liked it.', estimated_agreement: 'high' },
         { label: 'Negative', type: 'negative', description: 'Some disliked it.', estimated_agreement: 'low' },
-        { label: 'Debate', type: 'debate', description: 'Arguments about X.', estimated_agreement: 'medium' },
-        { label: 'Neutral', type: 'neutral', description: 'Just facts.', estimated_agreement: 'unknown' }
+        { label: 'Debate', type: 'debate', description: 'Arguments about X.', estimated_agreement: 'medium' }
       ]
     };
   }
 
   const apiKey = process.env.DEEPSEEK_API_KEY || '';
-  if (!apiKey) {
-    throw new Error('DEEPSEEK_API_KEY is not set.');
-  }
+  if (!apiKey) throw new Error('DEEPSEEK_API_KEY is not set.');
 
-  const openai = new OpenAI({
-    baseURL: 'https://api.deepseek.com',
-    apiKey: apiKey
-  });
-
-  console.log(`[Inference] Summarizing with DeepSeek: ${story.title}`);
+  const openai = new OpenAI({ baseURL: 'https://api.deepseek.com', apiKey });
 
   const systemMessage = `
     You are a Staff Engineer writing a daily tech briefing.
-    Analyze the following article and provide a structured JSON response.
-    You MUST return ONLY valid JSON matching this schema, with no markdown formatting:
+    Analyze the provided article content and community signals (from HN comments) to provide a structured JSON response.
+
+    You MUST return ONLY valid JSON matching this schema:
     {
       "topic": "AI Fundamentals|AI Applications|Tech|Politics|Others",
       "summary_paragraphs": ["paragraph 1 (~150 words)", "paragraph 2 (~150 words)"],
       "highlight": "memorable stat or quote",
       "key_points": ["point 1", "point 2"],
-      "sentiments": [
+      "article_sentiment": {
+        "label": "2-4 word label for the article tone",
+        "type": "positive|negative|mixed|neutral|debate",
+        "description": "~100 words analyzing the author's tone and stance",
+        "estimated_agreement": "N/A"
+      },
+      "community_sentiments": [
         {
           "label": "2-4 word label",
           "type": "positive|negative|mixed|neutral|debate",
-          "description": "~100 words detailed analysis",
-          "estimated_agreement": "e.g., '75 users' or 'major cohort'"
+          "description": "~100 words detailed analysis of this cohort's opinion",
+          "estimated_agreement": "rough count of users in this cohort"
         }
-      ]
+      ] // EXACTLY 3-4 items based on the community signals
     }
   `;
 
-  const userMessage = combinedSignals ? `
-    STORY: ${story.title}
-    URL: ${story.url}
-    COMMUNITY SIGNALS (Pre-summarized):
-    ${combinedSignals}
-  ` : `
+  const userMessage = `
     TITLE: ${story.title}
     URL: ${story.url}
-    CONTENT:
+    ARTICLE CONTENT:
     ${story.rawContent.substring(0, 15000)}
+
+    COMMUNITY SIGNALS (FROM HN COMMENTS):
+    ${combinedSignals || "No comments available."}
   `;
 
   let responseText = '';
@@ -140,73 +118,32 @@ export async function generateAnalysis(story: ScrapedStory, combinedSignals?: st
         { role: "user", content: userMessage }
       ],
       model: "deepseek-reasoner",
-      response_format: { type: 'json_object' } // Enforce JSON
+      response_format: { type: 'json_object' }
     });
 
     responseText = completion.choices[0].message.content?.trim() || '{}';
-    if (responseText.startsWith('\`\`\`json')) {
-      responseText = responseText.replace(/^\`\`\`json\n/, '').replace(/\n\`\`\`$/, '');
-    }
     const repairedJson = jsonrepair(responseText);
     const parsed = JSON.parse(repairedJson);
     return AnalysisDTOSchema.parse(parsed);
   } catch (err: any) {
     console.warn(`[Inference] Validation failed for ${story.id}, attempting repair...`, err.message);
-    try {
-      const repairPrompt = `
-        Your previous JSON response was malformed or didn't match the schema.
-        Fix it. ONLY return valid JSON.
-
-        Error: ${err.message}
-
-        Original Response:
-        ${responseText}
-      `;
-      const completion = await openai.chat.completions.create({
-        messages: [
-          { role: "system", content: systemMessage },
-          { role: "user", content: repairPrompt }
-        ],
-        model: "deepseek-reasoner",
-        response_format: { type: 'json_object' }
-      });
-
-      let repairedResponse = completion.choices[0].message.content?.trim() || '{}';
-      if (repairedResponse.startsWith('\`\`\`json')) {
-        repairedResponse = repairedResponse.replace(/^\`\`\`json\n/, '').replace(/\n\`\`\`$/, '');
-      }
-      const repairedJson = jsonrepair(repairedResponse);
-      const parsed = JSON.parse(repairedJson);
-      return AnalysisDTOSchema.parse(parsed);
-    } catch (repairErr: any) {
-      console.error(`[Inference] Repair failed for ${story.id}:`, repairErr.message);
-      throw new Error(`Failed to generate valid analysis for ${story.id}`);
-    }
+    // ... repair logic remains similar, updating to new schema ...
+    const result = await openai.chat.completions.create({
+      messages: [{ role: "system", content: systemMessage }, { role: "user", content: `Fix this JSON schema: ${responseText}. Error: ${err.message}` }],
+      model: "deepseek-reasoner",
+      response_format: { type: 'json_object' }
+    });
+    const parsed = JSON.parse(jsonrepair(result.choices[0].message.content || '{}'));
+    return AnalysisDTOSchema.parse(parsed);
   }
 }
 
 export async function generateEmbedding(text: string): Promise<number[]> {
-  if (process.env.MOCK_LLM === 'true') {
-    // Return a mock vector of 768 dimensions
-    return Array(768).fill(0.1);
-  }
-
-  // Deepseek doesn't have a reliable embedding endpoint yet, so we stick to Gemini for Vectors
-  // or we could use OpenAI if available. Sticking to Gemini for now as per original arch.
+  if (process.env.MOCK_LLM === 'true') return Array(3072).fill(0.1);
   const apiKey = process.env.GEMINI_API_KEY || '';
-  if (!apiKey) {
-    throw new Error('GEMINI_API_KEY is not set for embeddings.');
-  }
-
+  if (!apiKey) throw new Error('GEMINI_API_KEY is not set for embeddings.');
   const genAI = new GoogleGenerativeAI(apiKey);
-  // Correct model name from discovery: models/gemini-embedding-001
   const model = genAI.getGenerativeModel({ model: "gemini-embedding-001" }, { apiVersion: 'v1beta' });
-
-  try {
-    const result = await model.embedContent(text);
-    return result.embedding.values;
-  } catch (err: any) {
-    console.error('[Inference] Embedding failed:', err.message);
-    throw err;
-  }
+  const result = await model.embedContent(text);
+  return result.embedding.values;
 }

@@ -1,53 +1,56 @@
-import { pgTable, text, integer, timestamp, uuid, vector, primaryKey, boolean } from 'drizzle-orm/pg-core';
+import { pgTable, text, integer, timestamp, uuid, vector, primaryKey, boolean, check } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import type { AdapterAccountType } from "next-auth/adapters"
 
 export const stories = pgTable('stories', {
-  id: text('id').primaryKey(), // HN ObjectID
+  id: text('id').primaryKey(),
   title: text('title').notNull(),
   url: text('url'),
-  points: integer('points'),
+  points: integer('points').default(0),
   author: text('author'),
-  createdAt: timestamp('created_at').defaultNow(),
+  rawContent: text('raw_content'),
+  rawCommentsJson: text('raw_comments_json'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
 export const analyses = pgTable('analyses', {
   id: uuid('id').defaultRandom().primaryKey(),
-  storyId: text('story_id').references(() => stories.id),
-  topic: text('topic'),
-  summary: text('summary'),
-  embedding: vector('embedding', { dimensions: 3072 }), // Matching gemini-embedding-001 actual output
+  storyId: text('story_id').notNull().references(() => stories.id, { onDelete: "cascade" }),
+  topic: text('topic').notNull(),
+  summary: text('summary').notNull(),
+  embedding: vector('embedding', { dimensions: 3072 }),
   rawJson: text('raw_json'),
-  createdAt: timestamp('created_at').defaultNow(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
 export const sentiments = pgTable('sentiments', {
   id: uuid('id').defaultRandom().primaryKey(),
-  analysisId: uuid('analysis_id').references(() => analyses.id),
-  label: text('label'),
-  sentimentType: text('sentiment_type'),
+  analysisId: uuid('analysis_id').notNull().references(() => analyses.id, { onDelete: "cascade" }),
+  source: text('source').notNull().default('community'),
+  label: text('label').notNull(),
+  sentimentType: text('sentiment_type').notNull(),
   description: text('description'),
   agreement: text('agreement'),
-});
+}, (table) => ({
+  // Strict enum-like validation at the DB level
+  sentimentTypeCheck: check('sentiment_type_check', sql`${table.sentimentType} IN ('positive', 'negative', 'mixed', 'neutral', 'debate')`),
+  sourceCheck: check('source_check', sql`${table.source} IN ('article', 'community')`),
+}));
 
-// --- NextAuth Tables ---
+// (Rest of the tables follow similar hardening patterns...)
+// NextAuth tables already have high constraints from the adapter.
 
 export const users = pgTable("user", {
-  id: text("id")
-    .primaryKey()
-    .$defaultFn(() => crypto.randomUUID()),
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   name: text("name"),
-  email: text("email").unique(),
-  passwordHash: text("password_hash"), // Added for Stage 4
+  email: text("email").unique().notNull(),
+  passwordHash: text("password_hash"),
   emailVerified: timestamp("emailVerified", { mode: "date" }),
   image: text("image"),
 })
 
-export const accounts = pgTable(
-  "account",
-  {
-    userId: text("userId")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
+export const accounts = pgTable("account", {
+    userId: text("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
     type: text("type").$type<AdapterAccountType>().notNull(),
     provider: text("provider").notNull(),
     providerAccountId: text("providerAccountId").notNull(),
@@ -60,23 +63,17 @@ export const accounts = pgTable(
     session_state: text("session_state"),
   },
   (account) => ({
-    compoundKey: primaryKey({
-      columns: [account.provider, account.providerAccountId],
-    }),
+    compoundKey: primaryKey({ columns: [account.provider, account.providerAccountId] }),
   })
 )
 
 export const sessions = pgTable("session", {
   sessionToken: text("sessionToken").primaryKey(),
-  userId: text("userId")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
+  userId: text("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
   expires: timestamp("expires", { mode: "date" }).notNull(),
 })
 
-export const verificationTokens = pgTable(
-  "verificationToken",
-  {
+export const verificationTokens = pgTable("verificationToken", {
     identifier: text("identifier").notNull(),
     token: text("token").notNull(),
     expires: timestamp("expires", { mode: "date" }).notNull(),
@@ -86,27 +83,19 @@ export const verificationTokens = pgTable(
   })
 )
 
-// --- User Features ---
-
 export const bookmarks = pgTable("bookmark", {
   id: uuid('id').defaultRandom().primaryKey(),
-  userId: text("userId")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  storyId: text("storyId")
-    .notNull()
-    .references(() => stories.id, { onDelete: "cascade" }),
-  isActive: boolean("is_active").default(true), // Added for Stage 5
-  createdAt: timestamp('created_at').defaultNow(),
-  updatedAt: timestamp('updated_at').defaultNow(),
+  userId: text("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  storyId: text("storyId").notNull().references(() => stories.id, { onDelete: "cascade" }),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })
 
 export const preferences = pgTable("preference", {
   id: uuid('id').defaultRandom().primaryKey(),
-  userId: text("userId")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }).unique(),
-  topics: text("topics").array(), // Array of strings for interested topics
-  emailNotifications: boolean("email_notifications").default(false),
-  updatedAt: timestamp('updated_at').defaultNow(),
+  userId: text("userId").notNull().references(() => users.id, { onDelete: "cascade" }).unique(),
+  topics: text("topics").array(),
+  emailNotifications: boolean("email_notifications").default(false).notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })
