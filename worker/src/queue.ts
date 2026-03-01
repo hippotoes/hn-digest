@@ -1,16 +1,16 @@
-import { Queue, Worker, Job } from 'bullmq';
+import { Queue, Worker, Job, FlowProducer } from 'bullmq';
 import Redis from 'ioredis';
-import { ScrapedStory } from './scraper';
-import { generateAnalysis, generateEmbedding } from './inference';
+import { ScrapedStory, CommentDTO } from './scraper';
+import { generateAnalysis, generateEmbedding, extractArguments } from './inference';
 import { db } from './db';
 import { stories, analyses, sentiments } from '@hn-digest/db';
+import { sql } from 'drizzle-orm';
 
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6381';
 export const connection = new Redis(redisUrl, { maxRetriesPerRequest: null });
 
-export const storyQueue = new Queue<ScrapedStory, any, string>('story-queue', { connection });
-
-import { sql } from 'drizzle-orm';
+export const storyQueue = new Queue('story-queue', { connection });
+export const flowProducer = new FlowProducer({ connection });
 
 export async function processJob(job: Job) {
   if (job.name === 'refresh-manifest') {
@@ -19,18 +19,20 @@ export async function processJob(job: Job) {
     return;
   }
 
-  const story = job.data as ScrapedStory;
-  console.log(`[Worker] Processing job for story: ${story.title}`);
+  // Reduction Stage
+  if (job.name === 'synthesize-analysis') {
+    const { story, signals } = job.data;
+    console.log(`[Worker] Synthesizing final analysis for: ${story.title}`);
 
-  try {
-    // 1. Analyze
-    const analysis = await generateAnalysis(story);
+    // The "signals" come from the children Map jobs
+    const childValues = await job.getChildrenValues();
+    const allSignals = Object.values(childValues);
 
-    // 2. Generate Embedding from summary
-    const summaryText = analysis.summary_paragraphs.join('\\n\\n');
+    const analysis = await generateAnalysis(story, allSignals.join('\n\n'));
+    const summaryText = analysis.summary_paragraphs.join('\n\n');
     const embedding = await generateEmbedding(summaryText);
 
-    // 3. Persist to DB
+    // Persist
     await db.insert(stories).values({
       id: story.id,
       title: story.title,
@@ -38,10 +40,7 @@ export async function processJob(job: Job) {
       points: story.points,
       author: story.author,
       createdAt: new Date(story.timestamp),
-    }).onConflictDoUpdate({
-      target: stories.id,
-      set: { points: story.points }, // Update points if already exists
-    });
+    }).onConflictDoUpdate({ target: stories.id, set: { points: story.points } });
 
     const [insertedAnalysis] = await db.insert(analyses).values({
       storyId: story.id,
@@ -51,7 +50,6 @@ export async function processJob(job: Job) {
       embedding,
     }).returning({ id: analyses.id });
 
-    // Insert Sentiments
     for (const cluster of analysis.sentiments) {
       await db.insert(sentiments).values({
         analysisId: insertedAnalysis.id,
@@ -61,23 +59,18 @@ export async function processJob(job: Job) {
         agreement: cluster.estimated_agreement
       });
     }
+    return analysis;
+  }
 
-    console.log(`[Worker] Successfully processed and saved story: ${story.title}`);
-  } catch (err: any) {
-    console.error(`[Worker] Failed to process story ${story.id}:`, err.message);
-    throw err;
+  // Mapping Stage
+  if (job.name === 'extract-arguments') {
+    const { comments } = job.data;
+    return await extractArguments(comments);
   }
 }
 
-export const worker = new Worker<ScrapedStory>('story-queue', processJob, {
+export const worker = new Worker('story-queue', processJob, {
   connection,
-  concurrency: 1, // Process one at a time
-  limiter: {
-    max: 10,       // Max 10 jobs
-    duration: 60000 // per 60 seconds (1 minute)
-  }
-});
-
-worker.on('failed', (job, err) => {
-  console.error(`[Worker] Job ${job?.id} failed:`, err);
+  concurrency: 1,
+  limiter: { max: 10, duration: 60000 }
 });

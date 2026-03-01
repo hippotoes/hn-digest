@@ -1,44 +1,57 @@
-import { fetchTopHNStories } from './scraper';
-import { storyQueue, worker, connection } from './queue';
-import './notifier'; // Start notification worker
+import { fetchTopHNStories, ScrapedStory, CommentDTO } from './scraper';
+import { storyQueue, flowProducer, worker, connection } from './queue';
+import './notifier';
+
+function chunkArray<T>(array: T[], size: number): T[][] {
+  const chunks = [];
+  for (let i = 0; i < array.length; i += size) {
+    chunks.push(array.slice(i, i + size));
+  }
+  return chunks;
+}
 
 export async function runScraperAndEnqueue() {
-  console.log('🚀 Starting Stage 2 Pipeline (Scraper -> Queue)...');
+  console.log('🚀 Starting Stage 7 Pipeline (Map-Reduce Sentiment)...');
 
-  // 1. Scrape top 10 stories
   const scrapedStories = await fetchTopHNStories(10);
-  console.log(`✅ Scraped ${scrapedStories.length} stories. Queuing them for analysis...`);
+  console.log(`✅ Scraped ${scrapedStories.length} stories. Orchestrating Map-Reduce flows...`);
 
   for (const story of scrapedStories) {
-    await storyQueue.add('analyze-story', story, {
-      jobId: `story-${story.id}`, // Prevent duplicate jobs
-      removeOnComplete: true,
-      removeOnFail: false,
+    const commentChunks = chunkArray(story.comments, 50);
+
+    // Create a BullMQ Flow: Synthesis (Parent) depends on multiple Extractions (Children)
+    await flowProducer.add({
+      name: 'synthesize-analysis',
+      queueName: 'story-queue',
+      data: { story },
+      children: commentChunks.map((chunk, idx) => ({
+        name: 'extract-arguments',
+        queueName: 'story-queue',
+        data: { storyId: story.id, chunkIndex: idx, comments: chunk },
+        opts: { jobId: `map-${story.id}-${idx}` }
+      })),
+      opts: { jobId: `reduce-${story.id}` }
     });
   }
 
-  await storyQueue.add('refresh-manifest', {}, { jobId: 'refresh-manifest', priority: 1 });
-
-  console.log('🎉 All stories queued and manifest refresh scheduled!');
+  await storyQueue.add('refresh-manifest', {}, { jobId: 'refresh-manifest', delay: 300000 }); // Refresh in 5 mins
+  console.log('🎉 All stories orchestrated!');
 }
 
-// Check if running as a standalone script
 if (require.main === module) {
   const args = process.argv.slice(2);
-
   if (args.includes('--enqueue')) {
     runScraperAndEnqueue().then(() => {
-      // Allow it to exit gracefully
       setTimeout(() => {
         worker.close();
         connection.quit();
         process.exit(0);
-      }, 2000);
-    }).catch((err) => {
+      }, 5000);
+    }).catch(err => {
       console.error(err);
       process.exit(1);
     });
   } else {
-    console.log('👷 Worker started. Listening for jobs...');
+    console.log('👷 Worker started. Listening for Map-Reduce flow...');
   }
 }

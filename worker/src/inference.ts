@@ -18,11 +18,59 @@ export const AnalysisDTOSchema = z.object({
   key_points: z.array(z.string()),
   sentiments: z.array(SentimentClusterSchema).min(1).max(6)
 });
+export async function extractArguments(comments: CommentDTO[]): Promise<string> {
+  if (process.env.MOCK_LLM === 'true') return "[MOCK SIGNAL] Key technical concerns about memory safety and performance.";
 
-export type AnalysisDTO = z.infer<typeof AnalysisDTOSchema>;
+  const apiKey = process.env.GEMINI_API_KEY || '';
+  if (!apiKey) throw new Error('GEMINI_API_KEY is not set.');
 
-export async function generateAnalysis(story: ScrapedStory): Promise<AnalysisDTO> {
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+
+  const commentText = comments.map(c => `[${c.author}]: ${c.text}`).join('\n\n');
+  const prompt = `
+    Extract the core technical arguments and community sentiments from this batch of Hacker News comments.
+    Focus on engineering trade-offs, architecture, and developer sentiment.
+    Keep it concise.
+
+    COMMENTS:
+    ${commentText.substring(0, 30000)}
+  `;
+
+  try {
+    const result = await model.generateContent(prompt);
+    return result.response.text().trim();
+  } catch (err: any) {
+    return "[Extraction Failed]";
+  }
+}
+
+export async function summarizeSignals(story: ScrapedStory, signals: string[]): Promise<AnalysisDTO> {
+  const apiKey = process.env.DEEPSEEK_API_KEY || '';
+  if (!apiKey) throw new Error('DEEPSEEK_API_KEY is not set.');
+
+  const openai = new OpenAI({ baseURL: 'https://api.deepseek.com', apiKey });
+
+  const systemMessage = `
+    You are a Staff Engineer. Synthesize these intermediate community signals into exactly 4 distinct sentiment clusters (~100 words each).
+    Each cluster MUST describe a specific cohort of the community and quote visible terminology.
+    Return ONLY valid JSON.
+  `;
+
+  const userMessage = `
+    STORY: ${story.title}
+    SIGNALS:
+    ${signals.join('\n\n')}
+  `;
+
+  // ... (rest of logic similar to generateAnalysis but with summarized input)
+  // I will refactor generateAnalysis to handle this synthesis
+  return generateAnalysis(story, signals.join('\n\n'));
+}
+
+export async function generateAnalysis(story: ScrapedStory, combinedSignals?: string): Promise<AnalysisDTO> {
   if (process.env.MOCK_LLM === 'true') {
+...
     return {
       topic: 'Tech',
       summary_paragraphs: [
@@ -72,7 +120,12 @@ export async function generateAnalysis(story: ScrapedStory): Promise<AnalysisDTO
     }
   `;
 
-  const userMessage = `
+  const userMessage = combinedSignals ? `
+    STORY: ${story.title}
+    URL: ${story.url}
+    COMMUNITY SIGNALS (Pre-summarized):
+    ${combinedSignals}
+  ` : `
     TITLE: ${story.title}
     URL: ${story.url}
     CONTENT:
