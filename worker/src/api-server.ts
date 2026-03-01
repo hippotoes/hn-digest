@@ -1,11 +1,39 @@
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
 import { db } from './db';
-import { stories, analyses, bookmarks, preferences } from '@hn-digest/db';
+import { stories, analyses } from '@hn-digest/db';
 import { eq, ilike, or, sql, desc } from 'drizzle-orm';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { logger } from './logger';
 
 const app = new Hono();
+
+// --- Observability Middleware ---
+app.use('*', async (c, next) => {
+  const traceId = crypto.randomUUID();
+  c.header('x-trace-id', traceId);
+  const start = Date.now();
+
+  logger.info({ traceId, method: c.req.method, url: c.req.url }, '[Worker API] Incoming request');
+  await next();
+  const duration = Date.now() - start;
+  logger.info({ traceId, status: c.res.status, duration: `${duration}ms` }, '[Worker API] Request completed');
+});
+
+// --- Health Gates ---
+app.get('/health/live', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }));
+
+app.get('/health/ready', async (c) => {
+  try {
+    await db.execute(sql`SELECT 1`);
+    return c.json({ status: 'ok', db: 'connected' });
+  } catch (e: any) {
+    logger.error({ error: e.message }, '[Worker API] Readiness check failed');
+    return c.json({ status: 'error', db: 'disconnected' }, 503);
+  }
+});
+
+// --- V1 API ---
 
 app.get('/api/v1/ping', (c) => c.json({ status: 'ok', time: new Date().toISOString() }));
 
@@ -30,8 +58,8 @@ app.get('/api/v1/digests/daily/latest', async (c) => {
       count: digestItems.length,
       data: digestItems,
     });
-  } catch (error) {
-    console.error('Failed to fetch digest:', error);
+  } catch (error: any) {
+    logger.error({ error: error.message }, '[Worker API] Failed to fetch digest');
     return c.json({ success: false, error: 'Internal Server Error' }, 500);
   }
 });
@@ -67,11 +95,11 @@ app.get('/api/v1/search', async (c) => {
       .limit(5);
 
     return c.json({ success: true, data: results });
-  } catch (error) {
-    console.error('Search error:', error);
+  } catch (error: any) {
+    logger.error({ error: error.message }, '[Worker API] Search error');
     return c.json({ success: false, error: 'Internal Server Error' }, 500);
   }
 });
 
-console.log('🚀 Standalone Hono API server starting on port 3000...');
+logger.info('[Worker API] Hono server starting on port 3000');
 serve({ fetch: app.fetch, port: 3000 });

@@ -1,37 +1,81 @@
 import { Hono } from 'hono';
 import { handle } from 'hono/vercel';
 import { db } from '@/db';
-import { stories, analyses, bookmarks, preferences } from '@hn-digest/db';
-import { eq, ilike, or, sql, desc } from 'drizzle-orm';
-import { GoogleGenerativeAI } from '@google/generative-ai';
-import { Queue } from 'bullmq';
+import { stories, analyses, sentiments, bookmarks } from '@hn-digest/db';
+import { eq, desc, sql } from 'drizzle-orm';
+import { logger } from '@/logger';
 
-export const runtime = 'nodejs';
-
-const redisUrl = process.env.REDIS_URL || 'redis://redis:6379';
-const notificationQueue = new Queue('notification-queue', {
-  connection: {
-    host: 'redis',
-    port: 6379,
-  }
-});
 const app = new Hono().basePath('/api');
 
-app.get('/ping', (c) => c.json({ status: 'ok', time: new Date().toISOString() }));
+// --- Observability Middleware ---
+app.use('*', async (c, next) => {
+  const traceId = crypto.randomUUID();
+  c.header('x-trace-id', traceId);
+  const start = Date.now();
+
+  logger.info({
+    traceId,
+    method: c.req.method,
+    url: c.req.url
+  }, 'Incoming request');
+
+  await next();
+
+  const duration = Date.now() - start;
+  logger.info({
+    traceId,
+    status: c.res.status,
+    duration: `${duration}ms`
+  }, 'Request completed');
+});
+
+// --- Health Gates ---
+app.get('/health/live', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }));
+
+app.get('/health/ready', async (c) => {
+  try {
+    // Check DB
+    await db.execute(sql`SELECT 1`);
+    return c.json({ status: 'ok', db: 'connected' });
+  } catch (e: any) {
+    logger.error({ error: e.message }, 'Readiness check failed');
+    return c.json({ status: 'error', db: 'disconnected' }, 503);
+  }
+});
+
+app.get('/health/consistency', async (c) => {
+  try {
+    const orphanedAnalyses = await db.execute(sql`SELECT count(*) FROM analyses WHERE story_id NOT IN (SELECT id FROM stories)`);
+    return c.json({
+      status: 'ok',
+      orphaned_analyses: orphanedAnalyses[0].count
+    });
+  } catch (e: any) {
+    logger.error({ error: e.message }, 'Consistency check failed');
+    return c.json({ status: 'error' }, 500);
+  }
+});
+
+// --- V1 API ---
 
 app.get('/v1/digests/manifest', async (c) => {
   try {
     const result = await db.execute(sql`SELECT digest_date FROM digest_manifest ORDER BY digest_date DESC`);
     const dates = result.map((r: any) => r.digest_date);
     return c.json({ success: true, data: dates });
-  } catch (error) {
-    console.error('Failed to fetch manifest:', error);
+  } catch (error: any) {
+    logger.error({ error: error.message }, 'Failed to fetch manifest');
     return c.json({ success: false, error: 'Internal Server Error' }, 500);
   }
 });
 
 app.get('/v1/digests/daily/latest', async (c) => {
   try {
+    const latestDateResult = await db.execute(sql`SELECT MAX(digest_date) as latest FROM digest_manifest`);
+    const latestDate = latestDateResult[0]?.latest;
+
+    if (!latestDate) return c.json({ success: true, data: [] });
+
     const digestItems = await db
       .select({
         id: stories.id,
@@ -39,129 +83,27 @@ app.get('/v1/digests/daily/latest', async (c) => {
         url: stories.url,
         points: stories.points,
         author: stories.author,
-        summary: analyses.summary,
         topic: analyses.topic,
+        summary: analyses.summary,
+        rawJson: analyses.rawJson,
+        createdAt: analyses.createdAt,
       })
       .from(stories)
       .innerJoin(analyses, eq(stories.id, analyses.storyId))
+      .where(sql`date_trunc('day', ${analyses.createdAt})::date = ${latestDate}`)
       .orderBy(desc(stories.points));
 
-    return c.json({
-      success: true,
-      count: digestItems.length,
-      data: digestItems,
-    });
-  } catch (error) {
-    console.error('Failed to fetch digest:', error);
+    const analysisIds = digestItems.map(i => i.id); // Note: this logic might need adjustment if using multiple analyses per story
+    // But for latest, we return the items.
+
+    return c.json({ success: true, data: digestItems });
+  } catch (error: any) {
+    logger.error({ error: error.message }, 'Failed to fetch latest digest');
     return c.json({ success: false, error: 'Internal Server Error' }, 500);
-  }
-});
-
-app.get('/v1/search', async (c) => {
-  const q = c.req.query('q');
-  if (!q) {
-    return c.json({ success: false, error: 'Missing query parameter q' }, 400);
-  }
-
-  try {
-    let embedding: number[] = [];
-    if (process.env.MOCK_LLM === 'true') {
-      embedding = Array(3072).fill(0.1);
-    } else {
-      const apiKey = process.env.GEMINI_API_KEY || '';
-      if (!apiKey) {
-        throw new Error('GEMINI_API_KEY is not set.');
-      }
-      const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: 'gemini-embedding-001' }, { apiVersion: 'v1beta' });
-      const result = await model.embedContent(q);
-      embedding = result.embedding.values;
-    }
-
-    const vectorQuery = sql`${analyses.embedding} <=> ${JSON.stringify(embedding)}`;
-
-    const results = await db
-      .select({
-        id: stories.id,
-        title: stories.title,
-        url: stories.url,
-        points: stories.points,
-        summary: analyses.summary,
-        similarity: sql`1 - (${vectorQuery})`
-      })
-      .from(stories)
-      .innerJoin(analyses, eq(stories.id, analyses.storyId))
-      .where(
-        or(
-          ilike(stories.title, `%${q}%`),
-          ilike(analyses.summary, `%${q}%`)
-        )
-      )
-      .orderBy(vectorQuery)
-      .limit(10);
-
-    return c.json({
-      success: true,
-      data: results
-    });
-
-  } catch (error) {
-    console.error('Search error:', error);
-    return c.json({ success: false, error: 'Internal Server Error' }, 500);
-  }
-});
-
-// --- User Features ---
-
-// Bookmarks
-app.post('/v1/bookmarks', async (c) => {
-  const { storyId } = await c.req.json();
-  const userId = c.req.header('x-user-id') || 'test-user-id';
-
-  try {
-    await db.insert(bookmarks).values({ userId, storyId });
-    return c.json({ success: true, message: 'Bookmarked' });
-  } catch (error) {
-    return c.json({ success: false, error: 'Failed to bookmark' }, 500);
-  }
-});
-
-app.get('/v1/bookmarks', async (c) => {
-  const userId = c.req.header('x-user-id') || 'test-user-id';
-  const userBookmarks = await db
-    .select({ story: stories })
-    .from(bookmarks)
-    .innerJoin(stories, eq(bookmarks.storyId, stories.id))
-    .where(eq(bookmarks.userId, userId));
-
-  return c.json({ success: true, data: userBookmarks });
-});
-
-// Preferences & Notifications
-app.post('/v1/preferences', async (c) => {
-  const { topics, emailNotifications } = await c.req.json();
-  const userId = c.req.header('x-user-id') || 'test-user-id';
-
-  try {
-    await db.insert(preferences).values({
-      userId,
-      topics,
-      emailNotifications
-    }).onConflictDoUpdate({
-      target: preferences.userId,
-      set: { topics, emailNotifications, updatedAt: new Date() }
-    });
-
-    if (emailNotifications) {
-      await notificationQueue.add('send-welcome-alert', { userId, topics });
-    }
-
-    return c.json({ success: true, message: 'Preferences updated' });
-  } catch (error) {
-    console.error(error);
-    return c.json({ success: false, error: 'Failed to update preferences' }, 500);
   }
 });
 
 export const GET = handle(app);
 export const POST = handle(app);
+export const PUT = handle(app);
+export const DELETE = handle(app);

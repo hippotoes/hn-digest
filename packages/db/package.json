@@ -12,7 +12,7 @@
     "postgres": "^3.4.4"
   },
   "devDependencies": {
-    "drizzle-kit": "^0.24.0",
+    "drizzle-kit": "^0.12.8",
     "typescript": "^5.0.0"
   }
 }

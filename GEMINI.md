@@ -38,5 +38,9 @@ Follow the 6-step loop for every task:
 - **Validation:** Sanitize all scraped HTML before passing to LLMs.
 - **Audits:** Regular security, performance (Lighthouse > 90), and accessibility (WCAG AA) checks are mandatory.
 
+## 6. Knowledge Management & Auditability
+- **Architectural Rationale Persistence:** Every inquiry regarding technical justifications (the "Why") must be documented in `docs/QA_HISTORY.md`. Entries must include `ISO-8601 Timestamp`, `Contextual Inquiry`, and `Staff Technical Response`.
+- **Structured Interaction Ledger:** Every user prompt and agent response must be logged in a structured format within `docs/interactions/` to ensure full auditability and referenceability of the prompting lifecycle.
+
 ---
 *Refer to the `design/` directory for detailed module specifications.*

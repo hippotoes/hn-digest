@@ -1,0 +1,61 @@
+# Jaeger v2 SOTA Configuration (OTel Native)
+# Ref: https://www.jaegertracing.io/docs/2.15/architecture/spm/
+
+jaeger:
+  storage:
+    # Use memory for local dev parity
+    type: memory
+    options:
+      memory:
+        max-traces: 10000
+
+  # Define Prometheus as the metrics backend for SPM
+  metrics:
+    storage:
+      type: prometheus
+      options:
+        prometheus:
+          server-url: http://prometheus:9090
+          query-support-span-metrics: true
+
+  # Jaeger UI Configuration to enable the Monitor tab
+  ui:
+    options:
+      monitor:
+        menu-enabled: true
+
+# OpenTelemetry Collector Pipeline Configuration
+# This is the "brain" of Jaeger v2
+otel:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+  # The SpanMetrics Connector aggregates trace data into RED metrics
+  connectors:
+    spanmetrics:
+
+  exporters:
+    # Expose metrics for Prometheus to scrape
+    prometheus:
+      endpoint: 0.0.0.0:8889
+
+    # Internal Jaeger storage exporter (debug/nop)
+    debug:
+      verbosity: basic
+
+  service:
+    pipelines:
+      # Trace Pipeline: Input -> Storage & SpanMetrics Connector
+      traces:
+        receivers: [otlp]
+        exporters: [spanmetrics] # In all-in-one, spans also go to internal storage automatically
+
+      # Metrics Pipeline: SpanMetrics Connector -> Prometheus Exporter
+      metrics:
+        receivers: [spanmetrics]
+        exporters: [prometheus]

@@ -27,9 +27,24 @@ services:
       timeout: 5s
       retries: 5
 
-  # The app and worker are built and run via Dockerfile in production,
-  # but for local dev we can run them on host or use docker-compose watch/bind mounts.
-  # We will define basic placeholders here that use the local directories.
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+
+  jaeger:
+    image: jaegertracing/jaeger:latest
+    command: ["--config", "/etc/jaeger/jaeger-v2.yaml"]
+    volumes:
+      - ./jaeger-v2.yaml:/etc/jaeger/jaeger-v2.yaml
+    ports:
+      - "16686:16686" # UI
+      - "4317:4317"  # OTLP gRPC
+      - "4318:4318"  # OTLP HTTP
+      - "8889:8889"  # Prometheus Metrics Exporter
+
   app:
     build:
       context: .
@@ -43,9 +58,12 @@ services:
       - AUTH_SECRET=${AUTH_SECRET}
       - NEXTAUTH_URL=http://127.0.0.1:3005
       - AUTH_TRUST_HOST=true
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
     depends_on:
       db:
         condition: service_healthy
+      jaeger:
+        condition: service_started
     volumes:
       - ./app:/app/app
       - ./packages:/app/packages
@@ -63,11 +81,14 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
       - RESEND_API_KEY=${RESEND_API_KEY}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+      jaeger:
+        condition: service_started
     volumes:
       - ./worker:/app/worker
       - ./packages:/app/packages
