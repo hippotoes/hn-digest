@@ -4,7 +4,7 @@ services:
   db:
     image: pgvector/pgvector:pg16
     ports:
-      - "5433:5432"
+      - "5434:5432"
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
@@ -20,7 +20,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6380:6379"
+      - "6381:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -32,17 +32,21 @@ services:
   # We will define basic placeholders here that use the local directories.
   app:
     build:
-      context: ./app
-      dockerfile: Dockerfile.local
+      context: .
+      dockerfile: app/Dockerfile.local
     ports:
-      - "3000:3000"
+      - "3005:3000"
     environment:
       - DATABASE_URL=postgres://postgres:postgres@db:5432/hndigest
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
     depends_on:
       db:
         condition: service_healthy
     volumes:
-      - ./app:/app
+      - ./app:/app/app
+      - ./packages:/app/packages
+      - ./package.json:/app/package.json
+      - ./package-lock.json:/app/package-lock.json
       - /app/node_modules
 
   worker:
@@ -53,6 +57,7 @@ services:
       - DATABASE_URL=postgres://postgres:postgres@db:5432/hndigest
       - REDIS_URL=redis://redis:6379
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
     depends_on:
       db:
         condition: service_healthy

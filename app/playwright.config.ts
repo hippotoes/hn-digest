@@ -2,6 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests',
+  testMatch: '**/*.spec.ts',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
@@ -17,12 +18,4 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
   ],
-  webServer: {
-    command: 'npx next dev -p 3005',
-    url: 'http://127.0.0.1:3005',
-    reuseExistingServer: !process.env.CI,
-    env: {
-      DATABASE_URL: 'postgres://postgres:postgres@localhost:5433/hndigest',
-    },
-  },
 });

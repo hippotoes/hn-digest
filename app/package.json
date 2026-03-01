@@ -10,6 +10,7 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@hn-digest/db": "^1.0.0",
     "drizzle-orm": "^0.33.0",
     "hono": "^4.12.3",

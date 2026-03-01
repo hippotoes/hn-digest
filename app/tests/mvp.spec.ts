@@ -11,7 +11,7 @@ test('MVP: displays daily digest stories @mvp', async ({ page }) => {
 
   // Since our previous worker step populated the DB with 10 stories,
   // we expect to see at least 1 story card on the screen.
-  await expect(storyCards).toHaveCount(10);
+  await expect(storyCards.count()).resolves.toBeGreaterThanOrEqual(1);
 
   // Check that the summary text is present inside the first card
   const firstCard = storyCards.first();

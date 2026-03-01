@@ -5,7 +5,7 @@ async function verify() {
   console.log('Verifying infrastructure...');
 
   // 1. Verify PostgreSQL
-  const dbUrl = process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5433/hndigest';
+  const dbUrl = process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5434/hndigest';
   const client = new Client({ connectionString: dbUrl });
   try {
     await client.connect();
@@ -21,7 +21,7 @@ async function verify() {
   }
 
   // 2. Verify Redis
-  const redisUrl = process.env.REDIS_URL || 'redis://localhost:6380';
+  const redisUrl = process.env.REDIS_URL || 'redis://localhost:6381';
   const redis = new Redis(redisUrl);
   try {
     await redis.ping();

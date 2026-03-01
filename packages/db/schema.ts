@@ -14,7 +14,7 @@ export const analyses = pgTable('analyses', {
   storyId: text('story_id').references(() => stories.id),
   topic: text('topic'),
   summary: text('summary'),
-  embedding: vector('embedding', { dimensions: 768 }), // Gemini text-embedding-004 standard
+  embedding: vector('embedding', { dimensions: 3072 }), // Matching gemini-embedding-001 actual output
   rawJson: text('raw_json'),
   createdAt: timestamp('created_at').defaultNow(),
 });

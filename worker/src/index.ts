@@ -1,52 +1,41 @@
 import { fetchTopHNStories } from './scraper';
-import { generateSummary } from './inference';
-import { db } from './db';
-import { stories, analyses } from '@hn-digest/db';
+import { storyQueue, worker, connection } from './queue';
 
-async function runPipeline() {
-  console.log('🚀 Starting MVP Pipeline...');
+export async function runScraperAndEnqueue() {
+  console.log('🚀 Starting Stage 2 Pipeline (Scraper -> Queue)...');
 
   // 1. Scrape top 10 stories
   const scrapedStories = await fetchTopHNStories(10);
-  console.log(`✅ Scraped ${scrapedStories.length} stories.`);
+  console.log(`✅ Scraped ${scrapedStories.length} stories. Queuing them for analysis...`);
 
   for (const story of scrapedStories) {
-    try {
-      // 2. Generate Summary
-      const summary = await generateSummary(story);
-      console.log(`✅ Summarized: ${story.title.substring(0, 30)}...`);
-
-      // 3. Persist to DB
-      await db.insert(stories).values({
-        id: story.id,
-        title: story.title,
-        url: story.url,
-        points: story.points,
-        author: story.author,
-        createdAt: story.timestamp,
-      }).onConflictDoUpdate({
-        target: stories.id,
-        set: { points: story.points }, // Update points if already exists
-      });
-
-      await db.insert(analyses).values({
-        storyId: story.id,
-        topic: 'Others', // MVP default
-        summary: summary,
-        rawJson: JSON.stringify({ summary }),
-      });
-
-      console.log(`💾 Saved to DB: ${story.title.substring(0, 30)}...`);
-    } catch (err: any) {
-      console.error(`❌ Pipeline failed for ${story.id}:`, err.message);
-    }
+    await storyQueue.add('analyze-story', story, {
+      jobId: `story-${story.id}`, // Prevent duplicate jobs
+      removeOnComplete: true,
+      removeOnFail: false,
+    });
   }
 
-  console.log('🎉 MVP Pipeline Completed!');
-  process.exit(0);
+  console.log('🎉 All stories queued! Worker will process them in the background.');
 }
 
-// Run if called directly
+// Check if running as a standalone script
 if (require.main === module) {
-  runPipeline();
+  const args = process.argv.slice(2);
+
+  if (args.includes('--enqueue')) {
+    runScraperAndEnqueue().then(() => {
+      // Allow it to exit gracefully
+      setTimeout(() => {
+        worker.close();
+        connection.quit();
+        process.exit(0);
+      }, 2000);
+    }).catch((err) => {
+      console.error(err);
+      process.exit(1);
+    });
+  } else {
+    console.log('👷 Worker started. Listening for jobs...');
+  }
 }
