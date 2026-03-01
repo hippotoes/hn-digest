@@ -1,0 +1,11 @@
+
+> app@0.1.0 dev
+> next dev
+
+▲ Next.js 16.1.6 (Turbopack)
+- Local:         http://localhost:3005
+- Network:       http://192.168.5.119:3005
+
+✓ Starting...
+✓ Ready in 591ms
+ GET /api/v1/digests/daily/latest 200 in 872ms (compile: 833ms, render: 38ms)

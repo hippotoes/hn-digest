@@ -4,7 +4,7 @@ import { db } from '@/db';
 import { stories, analyses } from '@hn-digest/db';
 import { eq } from 'drizzle-orm';
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
 
 const app = new Hono().basePath('/api/v1');
 

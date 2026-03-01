@@ -1,0 +1,16 @@
+
+> app@0.1.0 dev
+> next dev
+
+▲ Next.js 16.1.6 (Turbopack)
+- Local:         http://localhost:3005
+- Network:       http://192.168.5.119:3005
+
+✓ Starting...
+✓ Ready in 492ms
+Failed to fetch digest: Error: The edge runtime does not support Node.js 'net' module.
+Learn More: https://nextjs.org/docs/messages/node-module-in-edge-runtime
+    at ignore-listed frames {
+
+}
+ GET /api/v1/digests/daily/latest 500 in 131ms
