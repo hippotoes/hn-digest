@@ -1,5 +1,14 @@
 # Architectural Rationale History (QA_HISTORY)
 
+### Inquiry: Shift to DeepSeek Reasoner as Primary (v1.1.0)
+**ISO-8601 Timestamp:** 2026-03-02T10:00:00Z
+**Contextual Inquiry:** Why prioritize DeepSeek Reasoner over Gemini 2.0 Flash for synthesis?
+**Staff Technical Response:**
+DeepSeek-R1 (Reasoner) demonstrates superior technical signal extraction and nuanced community sentiment analysis for engineering-heavy content (HN).
+1. **Decision:** DeepSeek becomes the primary engine for `extractArguments` (Map) and `generateAnalysis` (Reduce).
+2. **Fallback:** Gemini 2.0 Flash remains the high-speed fallback and primary provider for `pgvector` embeddings (3072 dims) to maintain cost efficiency and context window resilience.
+3. **Consistency:** This alignment ensures "Modern Broadside" summaries meet the Staff Engineer quality bar for technical depth.
+
 ## [v1.0.0] - 2026-03-01
 
 ... (previous entries) ...

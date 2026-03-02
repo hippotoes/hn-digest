@@ -43,4 +43,4 @@ graph TD
 -   **API:** Hono (integrated with Next.js Route Handlers).
 -   **Queue:** BullMQ + Redis (for 100% local/prod parity).
 -   **Database:** PostgreSQL + Drizzle ORM.
--   **AI:** Gemini 2.0 Flash (Primary), DeepSeek-V3 (Fallback).
+-   **AI:** DeepSeek-R1 (Primary Reasoner), Gemini 2.0 Flash (Fallback/Embeddings).

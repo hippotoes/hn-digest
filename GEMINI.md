@@ -13,7 +13,7 @@ This document defines the foundational mandates and technical standards for the 
 - **API Framework:** Hono (integrated with Next.js Route Handlers).
 - **Queueing:** BullMQ + Redis for all asynchronous background tasks.
 - **Database:** PostgreSQL 16+ with `pgvector` via Drizzle ORM.
-- **AI/LLM:** Gemini 2.0 Flash (Primary), DeepSeek-V3 (Fallback).
+- **AI/LLM:** DeepSeek-R1 (Primary Reasoner), Gemini 2.0 Flash (Fallback/Embeddings).
 - **Validation:** Strict `Zod` schemas for all data ingress/egress.
 - **Scraper:** Node-based with a Python bridge to `Trafilatura` for text extraction.
 

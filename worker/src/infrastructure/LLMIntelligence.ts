@@ -49,11 +49,11 @@ export async function extractArguments(comments: CommentDTO[]): Promise<string> 
           { role: "system", content: "You are a senior systems engineer. Extract technical signals from comments." },
           { role: "user", content: prompt }
         ],
-        model: "deepseek-chat",
+        model: "deepseek-reasoner",
       });
       return completion.choices[0].message.content?.trim() || '[Extraction Failed]';
     } catch (err: any) {
-      logger.warn({ error: err.message }, '[Inference] DeepSeek-Chat Map failed, falling back to Gemini');
+      logger.warn({ error: err.message }, '[Inference] DeepSeek-Reasoner Map failed, falling back to Gemini');
     }
   }
 
@@ -75,7 +75,7 @@ export async function generateAnalysis(story: ScrapedStory, combinedSignals?: st
   if (process.env.MOCK_LLM === 'true') {
     return {
       topic: 'Tech',
-      summary_paragraphs: ["Mock P1", "Mock P2"],
+      summary_paragraphs: ["[MOCK SUMMARY] P1", "Mock P2"],
       highlight: 'Mock highlight',
       key_points: ['Point 1'],
       article_sentiment: { label: 'Tone', type: 'positive', description: 'Good', estimated_agreement: 'N/A' },
@@ -145,7 +145,7 @@ export async function generateAnalysis(story: ScrapedStory, combinedSignals?: st
 }
 
 export async function generateEmbedding(text: string): Promise<number[]> {
-  if (process.env.MOCK_LLM === 'true') return Array(3072).fill(0.1);
+  if (process.env.MOCK_LLM === 'true') return Array(768).fill(0.1);
   const provider = process.env.EMBEDDING_PROVIDER || 'gemini';
 
   if (provider === 'together') {

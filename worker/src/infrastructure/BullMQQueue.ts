@@ -1,11 +1,11 @@
 import { Queue, Worker, Job, FlowProducer } from 'bullmq';
 import Redis from 'ioredis';
-import { generateAnalysis, generateEmbedding, extractArguments } from './inference';
 import { db } from './db';
-import { stories, analyses, sentiments } from '@hn-digest/db';
 import { sql } from 'drizzle-orm';
 import { logger } from './logger';
 import { trace, SpanStatusCode } from '@opentelemetry/api';
+import { MultiLLMIntelligenceProvider } from './MultiLLMIntelligenceProvider';
+import { DrizzleAnalysisRepository } from './DrizzleAnalysisRepository';
 
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6381';
 export const connection = new Redis(redisUrl, { maxRetriesPerRequest: null });
@@ -16,6 +16,8 @@ export const reduceQueue = new Queue('reduce-queue', { connection });
 export const flowProducer = new FlowProducer({ connection });
 
 const tracer = trace.getTracer('hn-digest-worker');
+const intelligenceProvider = new MultiLLMIntelligenceProvider();
+const analysisRepository = new DrizzleAnalysisRepository();
 
 /**
  * SHARED PROCESSING LOGIC
@@ -48,7 +50,7 @@ export async function processJob(job: Job) {
 
       const reduceStart = Date.now();
       try {
-        const analysis = await generateAnalysis(story, allSignals.join('\n\n'));
+        const analysis = await intelligenceProvider.generateAnalysis(story, allSignals.join('\n\n'));
         const reduceEnd = Date.now();
         logger.info({
           traceId,
@@ -61,7 +63,7 @@ export async function processJob(job: Job) {
         let embedding: number[] | null = null;
         try {
           embedding = await tracer.startActiveSpan('generate-embedding', async (embSpan) => {
-            const emb = await generateEmbedding(summaryText);
+            const emb = await intelligenceProvider.generateEmbedding(summaryText);
             embSpan.end();
             return emb;
           });
@@ -71,47 +73,7 @@ export async function processJob(job: Job) {
 
         // Persist
         await tracer.startActiveSpan('db-persistence', async (dbSpan) => {
-          await db.insert(stories).values({
-            id: story.id,
-            title: story.title,
-            url: story.url,
-            points: story.points,
-            author: story.author,
-            createdAt: new Date(story.timestamp),
-            rawContent: story.rawContent,
-            rawCommentsJson: JSON.stringify(story.comments || [])
-          }).onConflictDoUpdate({
-            target: stories.id,
-            set: { points: story.points, rawContent: story.rawContent, rawCommentsJson: JSON.stringify(story.comments || []) }
-          });
-
-          const [insertedAnalysis] = await db.insert(analyses).values({
-            storyId: story.id,
-            topic: analysis.topic,
-            summary: summaryText,
-            rawJson: JSON.stringify(analysis),
-            embedding: embedding as any,
-          }).returning({ id: analyses.id });
-
-          await db.insert(sentiments).values({
-            analysisId: insertedAnalysis.id,
-            source: 'article',
-            label: analysis.article_sentiment.label,
-            sentimentType: analysis.article_sentiment.type,
-            description: analysis.article_sentiment.description,
-            agreement: 'N/A'
-          });
-
-          for (const cluster of analysis.community_sentiments) {
-            await db.insert(sentiments).values({
-              analysisId: insertedAnalysis.id,
-              source: 'community',
-              label: cluster.label,
-              sentimentType: cluster.type,
-              description: cluster.description,
-              agreement: cluster.estimated_agreement
-            });
-          }
+          await analysisRepository.saveAnalysis(story, analysis, embedding || []);
           dbSpan.end();
         });
 
@@ -134,7 +96,7 @@ export async function processJob(job: Job) {
       logger.info({ traceId, storyId }, '[Worker] Mapping arguments from comments (Unthrottled DeepSeek)');
       const mapStart = Date.now();
       try {
-        const result = await extractArguments(job.data.comments);
+        const result = await intelligenceProvider.extractArguments(job.data.comments);
         const mapEnd = Date.now();
         logger.info({ traceId, storyId, duration: (mapEnd - mapStart) / 1000 }, '[Worker] Map stage completed');
         span.setStatus({ code: SpanStatusCode.OK });

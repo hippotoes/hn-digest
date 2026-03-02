@@ -93,12 +93,56 @@ app.get('/v1/digests/daily/latest', async (c) => {
       .where(sql`date_trunc('day', ${analyses.createdAt})::date = ${latestDate}`)
       .orderBy(desc(stories.points));
 
-    const analysisIds = digestItems.map(i => i.id); // Note: this logic might need adjustment if using multiple analyses per story
-    // But for latest, we return the items.
-
     return c.json({ success: true, data: digestItems });
   } catch (error: any) {
     logger.error({ error: error.message }, 'Failed to fetch latest digest');
+    return c.json({ success: false, error: 'Internal Server Error' }, 500);
+  }
+});
+
+// --- Bookmark Management ---
+
+app.post('/v1/bookmarks', async (c) => {
+  const { storyId, userId } = await c.req.json();
+  if (!storyId || !userId) return c.json({ success: false, error: 'Missing parameters' }, 400);
+
+  try {
+    const existing = await db
+      .select()
+      .from(bookmarks)
+      .where(and(eq(bookmarks.userId, userId), eq(bookmarks.storyId, storyId)))
+      .limit(1);
+
+    if (existing.length > 0) {
+      await db.update(bookmarks)
+        .set({ isActive: true, updatedAt: new Date() })
+        .where(eq(bookmarks.id, existing[0].id));
+    } else {
+      await db.insert(bookmarks).values({
+        userId,
+        storyId,
+        isActive: true
+      });
+    }
+    return c.json({ success: true });
+  } catch (error: any) {
+    logger.error({ error: error.message }, 'Bookmark failed');
+    return c.json({ success: false, error: 'Internal Server Error' }, 500);
+  }
+});
+
+app.delete('/v1/bookmarks/:storyId', async (c) => {
+  const storyId = c.req.param('storyId');
+  const userId = c.req.query('userId'); // In production, get from session/token
+  if (!storyId || !userId) return c.json({ success: false, error: 'Missing parameters' }, 400);
+
+  try {
+    await db.update(bookmarks)
+      .set({ isActive: false, updatedAt: new Date() })
+      .where(and(eq(bookmarks.userId, userId), eq(bookmarks.storyId, storyId)));
+    return c.json({ success: true });
+  } catch (error: any) {
+    logger.error({ error: error.message }, 'Remove bookmark failed');
     return c.json({ success: false, error: 'Internal Server Error' }, 500);
   }
 });

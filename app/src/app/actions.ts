@@ -75,19 +75,24 @@ export async function bookmarkAction(storyId: string) {
       .where(and(eq(bookmarks.userId, session.user.id), eq(bookmarks.storyId, storyId)))
       .limit(1);
 
-    if (existing.length > 0) {
-      await db.update(bookmarks)
-        .set({ isActive: !existing[0].isActive, updatedAt: new Date() })
-        .where(eq(bookmarks.id, existing[0].id));
+    const isCurrentlyActive = existing.length > 0 && existing[0].isActive;
+
+    if (isCurrentlyActive) {
+      // DELETE (Deactivate)
+      await fetch(`${process.env.NEXTAUTH_URL}/api/v1/bookmarks/${storyId}?userId=${session.user.id}`, {
+        method: 'DELETE',
+      });
     } else {
-      await db.insert(bookmarks).values({
-        userId: session.user.id,
-        storyId: storyId,
-        isActive: true
+      // POST (Activate)
+      await fetch(`${process.env.NEXTAUTH_URL}/api/v1/bookmarks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ storyId, userId: session.user.id }),
       });
     }
+
     revalidatePath("/")
   } catch (err) {
-    console.error("Bookmark toggle failed:", err)
+    console.error("Bookmark toggle failed via API:", err)
   }
 }

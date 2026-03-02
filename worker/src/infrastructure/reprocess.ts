@@ -1,6 +1,6 @@
 import { db } from './db';
 import { stories } from '@hn-digest/db';
-import { flowProducer } from './queue';
+import { flowProducer } from './BullMQQueue';
 
 async function reprocess() {
   const allStories = await db.select().from(stories);

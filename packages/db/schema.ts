@@ -18,7 +18,7 @@ export const analyses = pgTable('analyses', {
   storyId: text('story_id').notNull().references(() => stories.id, { onDelete: "cascade" }),
   topic: text('topic').notNull(),
   summary: text('summary').notNull(),
-  embedding: vector('embedding', { dimensions: 3072 }),
+  embedding: vector('embedding', { dimensions: 768 }),
   rawJson: text('raw_json'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });

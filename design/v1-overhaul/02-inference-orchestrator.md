@@ -13,8 +13,8 @@
     -   Combines Title, Article Body, and Top Comments into a single structured block.
     -   Injects "System Tone": Senior Tech Analyst, deep technical focus, no fluff.
 -   **Model Router:**
-    -   `GEMINI_2_FLASH`: Default for all stories (highest token window and speed).
-    -   `DEEPSEEK_V3`: Fallback for when complex reasoning or specific code snippets need deeper analysis.
+    -   `DEEPSEEK_REASONER`: Primary for synthesis and complex mapping (highest reasoning capability).
+    -   `GEMINI_2_FLASH`: Fallback for all stories (speed and large context window) and primary for embeddings.
 -   **Repair Mechanism:**
     -   If the LLM returns invalid JSON, the orchestrator attempts a "Repair Call" by feeding the error back into the LLM with the instruction: "Your previous JSON was malformed. Fix only the JSON schema below."
 -   **Analysis Caching:**

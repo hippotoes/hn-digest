@@ -1,5 +1,5 @@
 import { Worker, Job } from 'bullmq';
-import { connection } from './queue';
+import { connection } from './BullMQQueue';
 import { db } from './db';
 import { users } from '@hn-digest/db';
 import { eq } from 'drizzle-orm';

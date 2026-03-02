@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 vi.stubEnv('GEMINI_API_KEY', 'test_key');
 vi.stubEnv('DEEPSEEK_API_KEY', 'test_key');
 
-import { generateAnalysis, ScrapedStory, generateEmbedding } from '../src/inference';
+import { generateAnalysis, ScrapedStory, generateEmbedding } from '../src/infrastructure/LLMIntelligence';
 
 // Mock OpenAI
 const mockCreateCompletion = vi.fn().mockResolvedValue({
@@ -16,11 +16,11 @@ const mockCreateCompletion = vi.fn().mockResolvedValue({
           summary_paragraphs: ['Mocked highly technical summary from DeepSeek API.', 'Paragraph 2'],
           highlight: 'A great highlight.',
           key_points: ['Point 1', 'Point 2'],
-          sentiments: [
-            { label: 'Positive', type: 'positive', description: 'Good.', estimated_agreement: '10' },
-            { label: 'Negative', type: 'negative', description: 'Bad.', estimated_agreement: '5' },
-            { label: 'Debate', type: 'debate', description: 'Hmm.', estimated_agreement: '15' },
-            { label: 'Neutral', type: 'neutral', description: 'Okay.', estimated_agreement: '20' }
+          article_sentiment: { label: 'Tone', type: 'positive', description: 'Good', estimated_agreement: 'N/A' },
+          community_sentiments: [
+            { label: 'Positive', type: 'positive', description: 'Good.', estimated_agreement: 'high' },
+            { label: 'Negative', type: 'negative', description: 'Bad.', estimated_agreement: 'low' },
+            { label: 'Debate', type: 'debate', description: 'Hmm.', estimated_agreement: 'medium' }
           ]
         })
       }
