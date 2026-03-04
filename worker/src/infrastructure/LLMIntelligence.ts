@@ -13,7 +13,11 @@ export const SentimentClusterSchema = z.object({
 });
 
 export const AnalysisDTOSchema = z.object({
-  topic: z.enum(['AI Fundamentals', 'AI Applications', 'Tech', 'Politics', 'Others']),
+  topic: z.preprocess((val) => {
+    const validTopics = ['AI Fundamentals', 'AI Applications', 'Tech', 'Politics', 'Others'];
+    if (typeof val === 'string' && validTopics.includes(val)) return val;
+    return 'Others';
+  }, z.enum(['AI Fundamentals', 'AI Applications', 'Tech', 'Politics', 'Others'])),
   summary_paragraphs: z.array(z.string()).min(2),
   highlight: z.string(),
   key_points: z.array(z.string()),
@@ -136,7 +140,15 @@ export async function generateAnalysis(story: ScrapedStory, combinedSignals?: st
     });
 
     const responseText = completion.choices[0].message.content?.trim() || '{}';
-    const parsed = JSON.parse(jsonrepair(responseText));
+
+    // Robust extraction: find content between ```json and ``` or take the whole string
+    let jsonToParse = responseText;
+    const jsonMatch = responseText.match(/```json\s*([\s\S]*?)\s*```/);
+    if (jsonMatch) {
+      jsonToParse = jsonMatch[1];
+    }
+
+    const parsed = JSON.parse(jsonrepair(jsonToParse));
     return AnalysisDTOSchema.parse(parsed);
   } catch (err: any) {
     logger.error({ storyId: story.id, error: err.message }, '[Inference] DeepSeek synthesis failed');

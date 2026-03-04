@@ -1,5 +1,5 @@
 import { execSync } from 'child_process';
-import { db } from './src/db';
+import { db } from './src/infrastructure/db';
 import { stories, analyses } from '@hn-digest/db';
 
 async function testMVP() {

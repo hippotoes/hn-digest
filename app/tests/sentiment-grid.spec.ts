@@ -21,7 +21,7 @@ test('UI: Verify single copy per story and strict sentiment structure @ui', asyn
 
     // We expect exactly 1 Article Tone + at least some Community Sentiments if title is one of the new ones
     // Check Community Reaction Grid (Scoped to the card)
-    const communityHeader = card.locator('text=Community Reaction');
+    const communityHeader = card.locator('text=Community Reaction').first();
     const communityBlocks = card.locator('.sentiment-block');
 
     const count = await communityBlocks.count();
@@ -29,5 +29,17 @@ test('UI: Verify single copy per story and strict sentiment structure @ui', asyn
       await expect(communityHeader, `Missing Community Reaction header for: ${title}`).toBeVisible();
       expect(count, `Insufficient community sentiments for: ${title}`).toBeGreaterThanOrEqual(2);
     }
+  }
+});
+
+test('Sentiment Grid: Responsive Layout', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 667 }); // Mobile
+  await page.goto('http://127.0.0.1:3005/');
+
+  // Verify that cards stack on mobile (should not have 2+ columns)
+  const grids = await page.locator('.sentiment-grid').all();
+  for (const grid of grids) {
+     const columns = await grid.evaluate(node => getComputedStyle(node).gridTemplateColumns.split(' ').length);
+     expect(columns).toBeLessThanOrEqual(1);
   }
 });

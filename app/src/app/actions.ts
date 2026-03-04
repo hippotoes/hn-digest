@@ -66,6 +66,7 @@ export async function logoutAction() {
 
 export async function bookmarkAction(storyId: string) {
   const session = await auth()
+  console.log(`[BookmarkAction] session:`, !!session, session?.user?.id);
   if (!session?.user?.id) return
 
   try {
@@ -76,22 +77,30 @@ export async function bookmarkAction(storyId: string) {
       .limit(1);
 
     const isCurrentlyActive = existing.length > 0 && existing[0].isActive;
+    console.log(`[BookmarkAction] story: ${storyId}, user: ${session.user.id}, active: ${isCurrentlyActive}`);
 
     if (isCurrentlyActive) {
-      // DELETE (Deactivate)
-      await fetch(`${process.env.NEXTAUTH_URL}/api/v1/bookmarks/${storyId}?userId=${session.user.id}`, {
-        method: 'DELETE',
-      });
+      await db
+        .update(bookmarks)
+        .set({ isActive: false, updatedAt: new Date() })
+        .where(and(eq(bookmarks.userId, session.user.id), eq(bookmarks.storyId, storyId)));
     } else {
-      // POST (Activate)
-      await fetch(`${process.env.NEXTAUTH_URL}/api/v1/bookmarks`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storyId, userId: session.user.id }),
-      });
+      if (existing.length > 0) {
+        await db
+          .update(bookmarks)
+          .set({ isActive: true, updatedAt: new Date() })
+          .where(and(eq(bookmarks.userId, session.user.id), eq(bookmarks.storyId, storyId)));
+      } else {
+        await db.insert(bookmarks).values({
+          userId: session.user.id,
+          storyId,
+          isActive: true,
+        });
+      }
     }
 
-    revalidatePath("/")
+    revalidatePath("/");
+    revalidatePath("/?view=saved");
   } catch (err) {
     console.error("Bookmark toggle failed via API:", err)
   }

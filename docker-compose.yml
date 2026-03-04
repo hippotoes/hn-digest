@@ -56,7 +56,7 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
       - AUTH_SECRET=${AUTH_SECRET}
-      - NEXTAUTH_URL=http://127.0.0.1:3005
+      - NEXTAUTH_URL=http://app:3000
       - AUTH_TRUST_HOST=true
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
     depends_on:

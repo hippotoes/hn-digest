@@ -6,7 +6,7 @@ import { eq, ilike, or, sql, desc } from 'drizzle-orm';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { logger } from './logger';
 
-const app = new Hono();
+export const app = new Hono();
 
 // --- Observability Middleware ---
 app.use('*', async (c, next) => {
@@ -69,13 +69,19 @@ app.get('/api/v1/search', async (c) => {
   if (!q) return c.json({ success: false, error: 'Missing query parameter q' }, 400);
 
   try {
-    const apiKey = process.env.GEMINI_API_KEY || '';
-    if (!apiKey) throw new Error('GEMINI_API_KEY is not set.');
+    let embedding: number[];
 
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-embedding-001' }, { apiVersion: 'v1beta' });
-    const result = await model.embedContent(q);
-    const embedding = result.embedding.values;
+    if (process.env.MOCK_LLM === 'true') {
+      embedding = new Array(768).fill(0.1);
+    } else {
+      const apiKey = process.env.GEMINI_API_KEY || '';
+      if (!apiKey) throw new Error('GEMINI_API_KEY is not set.');
+
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({ model: 'gemini-embedding-001' }, { apiVersion: 'v1beta' });
+      const result = await model.embedContent(q);
+      embedding = result.embedding.values;
+    }
 
     const vectorQuery = sql`${analyses.embedding} <=> ${JSON.stringify(embedding)}`;
 
@@ -101,5 +107,9 @@ app.get('/api/v1/search', async (c) => {
   }
 });
 
-logger.info('[Worker API] Hono server starting on port 3000');
-serve({ fetch: app.fetch, port: 3000 });
+/* v8 ignore start */
+if (process.env.NODE_ENV !== 'test') {
+  logger.info('[Worker API] Hono server starting on port 3000');
+  serve({ fetch: app.fetch, port: 3000 });
+}
+/* v8 ignore stop */

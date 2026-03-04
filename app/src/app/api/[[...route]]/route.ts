@@ -2,10 +2,11 @@ import { Hono } from 'hono';
 import { handle } from 'hono/vercel';
 import { db } from '@/db';
 import { stories, analyses, sentiments, bookmarks } from '@hn-digest/db';
-import { eq, desc, sql } from 'drizzle-orm';
+import { eq, desc, sql, and, or, ilike } from 'drizzle-orm';
 import { logger } from '@/logger';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
-const app = new Hono().basePath('/api');
+export const app = new Hono().basePath('/api');
 
 // --- Observability Middleware ---
 app.use('*', async (c, next) => {
@@ -45,10 +46,11 @@ app.get('/health/ready', async (c) => {
 
 app.get('/health/consistency', async (c) => {
   try {
-    const orphanedAnalyses = await db.execute(sql`SELECT count(*) FROM analyses WHERE story_id NOT IN (SELECT id FROM stories)`);
+    const orphanedAnalysesResult = await db.execute(sql`SELECT count(*) FROM analyses WHERE story_id NOT IN (SELECT id FROM stories)`);
+    const count = orphanedAnalysesResult[0]?.count || 0;
     return c.json({
       status: 'ok',
-      orphaned_analyses: orphanedAnalyses[0].count
+      orphaned_analyses: count
     });
   } catch (e: any) {
     logger.error({ error: e.message }, 'Consistency check failed');
@@ -93,7 +95,7 @@ app.get('/v1/digests/daily/latest', async (c) => {
       .where(sql`date_trunc('day', ${analyses.createdAt})::date = ${latestDate}`)
       .orderBy(desc(stories.points));
 
-    return c.json({ success: true, data: digestItems });
+    return c.json({ success: true, count: digestItems.length, data: digestItems });
   } catch (error: any) {
     logger.error({ error: error.message }, 'Failed to fetch latest digest');
     return c.json({ success: false, error: 'Internal Server Error' }, 500);
@@ -147,7 +149,51 @@ app.delete('/v1/bookmarks/:storyId', async (c) => {
   }
 });
 
+app.get('/v1/search', async (c) => {
+  const q = c.req.query('q');
+  if (!q) return c.json({ success: false, error: 'Missing query parameter q' }, 400);
+
+  try {
+    let embedding: number[];
+
+    if (process.env.MOCK_LLM === 'true') {
+      embedding = new Array(768).fill(0.1);
+    } else {
+      const apiKey = process.env.GEMINI_API_KEY || '';
+      if (!apiKey) throw new Error('GEMINI_API_KEY is not set.');
+
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({ model: 'gemini-embedding-001' }, { apiVersion: 'v1beta' });
+      const result = await model.embedContent(q);
+      embedding = result.embedding.values;
+    }
+
+    const vectorQuery = sql`${analyses.embedding} <=> ${JSON.stringify(embedding)}`;
+
+    const results = await db
+      .select({
+        id: stories.id,
+        title: stories.title,
+        url: stories.url,
+        points: stories.points,
+        summary: analyses.summary,
+        similarity: sql`1 - (${vectorQuery})`
+      })
+      .from(stories)
+      .innerJoin(analyses, eq(stories.id, analyses.storyId))
+      .where(or(ilike(stories.title, `%${q}%`), ilike(analyses.summary, `%${q}%`)))
+      .orderBy(vectorQuery)
+      .limit(5);
+
+    return c.json({ success: true, data: results });
+  } catch (error: any) {
+    logger.error({ error: error.message }, 'Search error');
+    return c.json({ success: false, error: 'Internal Server Error' }, 500);
+  }
+});
+
 export const GET = handle(app);
 export const POST = handle(app);
 export const PUT = handle(app);
 export const DELETE = handle(app);
+export const PATCH = handle(app);

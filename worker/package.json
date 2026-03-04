@@ -9,7 +9,9 @@
     "test:mvp": "npx -y tsx test-mvp.ts",
     "test:intelligence": "npx -y tsx test-intelligence.ts",
     "test:full": "npx -y tsx test-full.ts",
-    "test:unit": "vitest run"
+    "test:unit": "vitest run",
+    "test:functional": "vitest run tests/functional",
+    "test:nuclear": "vitest run tests/functional/Nuclear"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

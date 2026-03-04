@@ -12,7 +12,7 @@ test('Bookmarks: Deep flow verification @bookmarks', async ({ page }) => {
   await page.fill('input[placeholder="Email"]', email);
   await page.fill('input[placeholder="Password"]', 'password123');
   await page.click('#login-submit-btn');
-  await page.waitForURL('http://127.0.0.1:3005/');
+  await page.waitForURL(url => url.pathname === '/');
 
   // 2. Bookmark first story
   const firstStory = page.locator('article.story-card').first();

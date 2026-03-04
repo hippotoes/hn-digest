@@ -121,6 +121,11 @@ export default async function DailyDigestPage({
       </header>
 
       <div className="max-w-4xl mx-auto space-y-32">
+        {digestItems.length === 0 && (
+          <div className="text-center py-20 border border-[#1a1814] rounded-lg bg-[#0a0908]">
+            <p className="text-[#9c9285] font-mono text-xs uppercase tracking-widest">No stories processed yet for this date.</p>
+          </div>
+        )}
         {digestItems.map(({ story, analysis }) => {
           const parsedJson = JSON.parse(analysis.rawJson || '{}');
           const paragraphs = parsedJson.summary_paragraphs || [analysis.summary];

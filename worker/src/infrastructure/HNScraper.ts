@@ -43,6 +43,7 @@ async function fetchWithRetry(url: string, retries = 3): Promise<any> {
 }
 
 async function fetchRawTextWithRetry(url: string, retries = 3): Promise<string> {
+  let lastErr: any;
   for (let i = 0; i < retries; i++) {
     try {
       const res = await fetch(url, {
@@ -51,11 +52,11 @@ async function fetchRawTextWithRetry(url: string, retries = 3): Promise<string> 
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return await res.text();
     } catch (err) {
-      if (i === retries - 1) throw err;
-      await delay(1000);
+      lastErr = err;
+      if (i < retries - 1) await delay(1000);
     }
   }
-  return '';
+  throw lastErr;
 }
 
 async function fetchCommentTree(commentIds: number[]): Promise<CommentDTO[]> {

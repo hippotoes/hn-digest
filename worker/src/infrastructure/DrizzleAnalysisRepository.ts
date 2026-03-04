@@ -33,9 +33,7 @@ export class DrizzleAnalysisRepository implements AnalysisRepository {
       const [analysisResult] = await tx.insert(analyses).values({
         storyId: story.id,
         topic: analysis.topic,
-        summary: analysis.summary_paragraphs.join('
-
-'),
+        summary: analysis.summary_paragraphs.join('\n\n'),
         embedding: embedding,
         rawJson: JSON.stringify(analysis),
       }).returning({ id: analyses.id });

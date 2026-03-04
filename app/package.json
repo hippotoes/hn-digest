@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:unit": "vitest run"
+    "test:unit": "vitest run",
+    "test:functional": "vitest run tests/functional",
+    "test:nuclear": "vitest run tests/functional/Nuclear && npx playwright test tests/functional/NuclearUX.spec.ts"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.11.1",

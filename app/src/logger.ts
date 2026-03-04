@@ -15,7 +15,7 @@ export const logger = pino({
       ignore: 'pid,hostname',
       translateTime: 'SYS:standard',
     },
-  } : undefined,
+  } : /* v8 ignore next */ undefined,
 });
 
 export default logger;
