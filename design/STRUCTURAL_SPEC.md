@@ -14,7 +14,7 @@ graph TD
         HonoAPI -->|Reads/Writes| DB[(PostgreSQL + pgvector)]
         Worker[Worker: Node.js] -->|Polls| HN[Hacker News API]
         Worker -->|Extracts| Scraper[Scraper: Trafilatura]
-        Worker -->|Analyzes| LLM[LLM: DeepSeek-R1 / Gemini]
+        Worker -->|Analyzes| LLM[LLM: deepseek-chat / Gemini]
         Worker -->|Persists| DB
         Worker -->|Queues| Redis[(Redis: BullMQ)]
     end
@@ -36,7 +36,7 @@ graph TD
 
 ### C. Infrastructure Layer (`worker/src/infrastructure`)
 - **HNScraper**: Handles resilient fetching from HN Firebase API. Includes Trafilatura CLI integration for article extraction.
-- **LLMIntelligence**: DeepSeek-R1 (Reasoner) for technical extraction. Gemini 2.0 Flash for embeddings and fallback.
+- **LLMIntelligence**: deepseek-chat (Reasoner) for technical extraction. Gemini 2.0 Flash for embeddings and fallback.
 - **DrizzleAnalysisRepository**: Uses Drizzle ORM to manage `pgvector` and standard relational tables.
 - **BullMQQueue**: Manages the Redis-backed job queues with OpenTelemetry tracing.
 

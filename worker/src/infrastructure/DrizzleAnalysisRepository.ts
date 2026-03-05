@@ -20,7 +20,7 @@ export class DrizzleAnalysisRepository implements AnalysisRepository {
         points: story.points,
         author: story.author,
         rawContent: story.rawContent,
-        createdAt: story.timestamp,
+        createdAt: new Date(story.timestamp),
       }).onConflictDoUpdate({
         target: stories.id,
         set: {

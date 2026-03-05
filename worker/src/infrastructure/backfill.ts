@@ -1,9 +1,10 @@
 import { db } from './db';
 import { stories } from '@hn-digest/db';
-import { exec } from 'child_process';
+import { exec, execFile } from 'child_process';
 import { promisify } from 'util';
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 async function fetchCommentTree(commentIds: number[]): Promise<any[]> {
   const allComments: any[] = [];
@@ -41,8 +42,9 @@ async function backfill() {
     // 1. Fetch Article Content
     let rawContent = '[Extraction Failed]';
     if (story.url) {
+      const sanitizedUrl = story.url.trim().replace(/[\r\n]/g, '');
       try {
-        const { stdout } = await execAsync(`trafilatura -u "${story.url}"`, { timeout: 15000 });
+        const { stdout } = await execFileAsync('trafilatura', ['-u', sanitizedUrl], { timeout: 15000 });
         rawContent = stdout.trim();
       } catch (err) {}
     }

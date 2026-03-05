@@ -75,6 +75,8 @@ services:
     build:
       context: .
       dockerfile: worker/Dockerfile.local
+    ports:
+      - "3006:3001"
     environment:
       - DATABASE_URL=postgres://postgres:postgres@db:5432/hndigest
       - REDIS_URL=redis://redis:6379

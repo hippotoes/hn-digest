@@ -4,10 +4,11 @@ import { jsonrepair } from 'jsonrepair';
 import OpenAI from 'openai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { logger } from './logger';
+import { config } from '../config';
 
 export const SentimentClusterSchema = z.object({
   label: z.string(),
-  type: z.enum(['positive', 'negative', 'mixed', 'neutral', 'debate']),
+  type: z.enum(['positive', 'negative', 'mixed', 'neutral', 'debate', 'analytical', 'skeptical', 'critical', 'informative']),
   description: z.string(),
   estimated_agreement: z.string()
 });
@@ -28,11 +29,16 @@ export const AnalysisDTOSchema = z.object({
 export type AnalysisDTO = z.infer<typeof AnalysisDTOSchema>;
 
 export async function extractArguments(comments: CommentDTO[]): Promise<string> {
-  if (process.env.MOCK_LLM === 'true') return "[MOCK SIGNAL] Key technical concerns.";
+  if (config.env.MOCK_LLM) return "[MOCK SIGNAL] Key technical concerns.";
 
-  const provider = process.env.MAP_LLM_PROVIDER || 'deepseek';
   const commentText = comments.map(c => `[${c.author}]: ${c.text}`).join('\n\n');
 
+  if (config.env.TRANSPARENT_MAP) {
+    logger.info('[Inference] Using Transparent Map (returning original text)');
+    return commentText.substring(0, 30000);
+  }
+
+  const provider = config.env.MAP_LLM_PROVIDER;
   const prompt = `
     Extract the core technical arguments and community sentiments from this batch of Hacker News comments.
     Focus on engineering trade-offs, architecture, and developer sentiment.
@@ -43,9 +49,9 @@ export async function extractArguments(comments: CommentDTO[]): Promise<string> 
   `;
 
   if (provider === 'deepseek') {
-    const apiKey = process.env.DEEPSEEK_API_KEY;
+    const apiKey = config.env.DEEPSEEK_API_KEY;
     if (!apiKey) throw new Error('DEEPSEEK_API_KEY is not set.');
-    const openai = new OpenAI({ baseURL: 'https://api.deepseek.com', apiKey });
+    const openai = new OpenAI({ baseURL: config.ai.deepseekBaseUrl, apiKey });
 
     try {
       const completion = await openai.chat.completions.create({
@@ -53,18 +59,18 @@ export async function extractArguments(comments: CommentDTO[]): Promise<string> 
           { role: "system", content: "You are a senior systems engineer. Extract technical signals from comments." },
           { role: "user", content: prompt }
         ],
-        model: "deepseek-reasoner",
+        model: config.ai.deepseekModel,
       });
       return completion.choices[0].message.content?.trim() || '[Extraction Failed]';
     } catch (err: any) {
-      logger.warn({ error: err.message }, '[Inference] DeepSeek-Reasoner Map failed, falling back to Gemini');
+      logger.warn({ error: err.message }, '[Inference] DeepSeek-Chat Map failed, falling back to Gemini');
     }
   }
 
-  const apiKey = process.env.GEMINI_API_KEY || '';
+  const apiKey = config.env.GEMINI_API_KEY || '';
   if (!apiKey) throw new Error('GEMINI_API_KEY is not set.');
   const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+  const model = genAI.getGenerativeModel({ model: config.ai.geminiModel });
 
   try {
     const result = await model.generateContent(prompt);
@@ -76,7 +82,7 @@ export async function extractArguments(comments: CommentDTO[]): Promise<string> 
 }
 
 export async function generateAnalysis(story: ScrapedStory, combinedSignals?: string): Promise<AnalysisDTO> {
-  if (process.env.MOCK_LLM === 'true') {
+  if (config.env.MOCK_LLM) {
     return {
       topic: 'Tech',
       summary_paragraphs: ["[MOCK SUMMARY] P1", "Mock P2"],
@@ -91,10 +97,10 @@ export async function generateAnalysis(story: ScrapedStory, combinedSignals?: st
     };
   }
 
-  const apiKey = process.env.DEEPSEEK_API_KEY || '';
+  const apiKey = config.env.DEEPSEEK_API_KEY || '';
   if (!apiKey) throw new Error('DEEPSEEK_API_KEY is not set.');
 
-  const openai = new OpenAI({ baseURL: 'https://api.deepseek.com', apiKey });
+  const openai = new OpenAI({ baseURL: config.ai.deepseekBaseUrl, apiKey });
 
   logger.info({ storyId: story.id, title: story.title }, '[Inference] DeepSeek synthesis started');
 
@@ -102,19 +108,23 @@ export async function generateAnalysis(story: ScrapedStory, combinedSignals?: st
     You are a Staff Engineer writing a daily tech briefing.
     Analyze the provided article content and community signals to provide a structured JSON response.
 
-    CRITICAL SCHEMA RULE:
-    Every sentiment must be a full OBJECT, not a string.
+    CRITICAL SCHEMA RULES:
+    1. Every sentiment must be a full OBJECT, not a string.
+    2. "summary_paragraphs" MUST be an array of at least 2 strings.
+    3. "community_sentiments" MUST be an array of 3 to 4 objects.
+    4. "type" MUST be one of: "positive", "negative", "mixed", "neutral", "debate", "analytical", "skeptical", "critical", "informative".
 
     EXAMPLE STRUCTURE:
     {
       "topic": "AI Fundamentals",
-      "summary_paragraphs": ["...", "..."],
-      "highlight": "...",
-      "key_points": ["..."],
-      "article_sentiment": { "label": "...", "type": "positive", "description": "...", "estimated_agreement": "N/A" },
+      "summary_paragraphs": ["A deep dive into transformer architecture...", "Implications for scaling laws..."],
+      "highlight": "The breakthrough in attention mechanism is pivotal.",
+      "key_points": ["Memory efficiency improved by 40%", "Latency reduced for long contexts"],
+      "article_sentiment": { "label": "Technical Optimism", "type": "positive", "description": "The article highlights significant engineering gains.", "estimated_agreement": "N/A" },
       "community_sentiments": [
-        { "label": "...", "type": "negative", "description": "...", "estimated_agreement": "..." },
-        ... 3 more
+        { "label": "Deployment Skepticism", "type": "negative", "description": "Users worry about VRAM requirements.", "estimated_agreement": "High" },
+        { "label": "Performance Praise", "type": "positive", "description": "Early benchmarks are impressive.", "estimated_agreement": "Medium" },
+        { "label": "Open Source Debate", "type": "debate", "description": "Discussion on weights accessibility.", "estimated_agreement": "Low" }
       ]
     }
   `;
@@ -123,7 +133,7 @@ export async function generateAnalysis(story: ScrapedStory, combinedSignals?: st
     TITLE: ${story.title}
     URL: ${story.url}
     ARTICLE CONTENT:
-    ${story.rawContent.substring(0, 15000)}
+    ${story.rawContent.substring(0, config.scraper.maxContentLength)}
 
     COMMUNITY SIGNALS (FROM HN COMMENTS):
     ${combinedSignals || "No comments available."}
@@ -135,7 +145,7 @@ export async function generateAnalysis(story: ScrapedStory, combinedSignals?: st
         { role: "system", content: systemMessage },
         { role: "user", content: userMessage }
       ],
-      model: "deepseek-reasoner",
+      model: config.ai.deepseekModel,
       response_format: { type: 'json_object' }
     });
 
@@ -157,16 +167,16 @@ export async function generateAnalysis(story: ScrapedStory, combinedSignals?: st
 }
 
 export async function generateEmbedding(text: string): Promise<number[]> {
-  if (process.env.MOCK_LLM === 'true') return Array(768).fill(0.1);
-  const provider = process.env.EMBEDDING_PROVIDER || 'gemini';
+  if (config.env.MOCK_LLM) return Array(768).fill(0.1);
+  const provider = config.env.EMBEDDING_PROVIDER;
 
   if (provider === 'together') {
-    const apiKey = process.env.TOGETHER_API_KEY;
+    const apiKey = config.env.TOGETHER_API_KEY;
     if (!apiKey) throw new Error('TOGETHER_API_KEY is missing');
-    const together = new OpenAI({ apiKey, baseURL: 'https://api.together.xyz/v1' });
+    const together = new OpenAI({ apiKey, baseURL: config.ai.togetherBaseUrl });
     try {
       const response = await together.embeddings.create({
-        model: "togethercomputer/m2-bert-80M-32k-retrieval",
+        model: config.ai.togetherEmbeddingModel,
         input: text,
       });
       return response.data[0].embedding;
@@ -176,10 +186,10 @@ export async function generateEmbedding(text: string): Promise<number[]> {
     }
   }
 
-  const apiKey = process.env.GEMINI_API_KEY || '';
+  const apiKey = config.env.GEMINI_API_KEY || '';
   if (!apiKey) throw new Error('GEMINI_API_KEY is not set for embeddings.');
   const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: "gemini-embedding-001" }, { apiVersion: 'v1beta' });
+  const model = genAI.getGenerativeModel({ model: config.ai.embeddingModel }, { apiVersion: 'v1beta' });
   try {
     const result = await model.embedContent(text);
     return result.embedding.values;

@@ -7,7 +7,6 @@ import { AnalysisOrchestrator, QueueOrchestrator } from './application/AnalysisO
 import { HNStoryProvider } from './infrastructure/HNStoryProvider';
 import { MultiLLMIntelligenceProvider } from './infrastructure/MultiLLMIntelligenceProvider';
 import { DrizzleAnalysisRepository } from './infrastructure/DrizzleAnalysisRepository';
-import './infrastructure/notifier';
 
 const storyProvider = new HNStoryProvider();
 const intelligenceProvider = new MultiLLMIntelligenceProvider();
@@ -44,6 +43,9 @@ if (require.main === module) {
       process.exit(1);
     });
   } else {
+    // Dynamically import side-effect modules only when starting as a persistent worker
+    import('./infrastructure/notifier');
+    import('./infrastructure/api-server');
     logger.info('[Worker] Multi-Queue Worker started. Listening for Map and Reduce jobs');
   }
 }

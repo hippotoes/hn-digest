@@ -4,8 +4,9 @@ import { db } from './db';
 import { users } from '@hn-digest/db';
 import { eq } from 'drizzle-orm';
 import { Resend } from 'resend';
+import { config } from '../config';
 
-const resend = new Resend(process.env.RESEND_API_KEY || 're_mock');
+const resend = new Resend(config.env.RESEND_API_KEY);
 
 export async function processNotification(job: Job) {
   const { userId, topics } = job.data;
@@ -18,7 +19,7 @@ export async function processNotification(job: Job) {
       return;
     }
 
-    if (process.env.RESEND_API_KEY) {
+    if (config.env.RESEND_API_KEY && config.env.RESEND_API_KEY !== 're_mock') {
       await resend.emails.send({
         from: 'HN Digest <onboarding@resend.dev>',
         to: user.email,

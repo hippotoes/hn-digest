@@ -18,7 +18,7 @@ export const analyses = pgTable('analyses', {
   storyId: text('story_id').notNull().references(() => stories.id, { onDelete: "cascade" }),
   topic: text('topic').notNull(),
   summary: text('summary').notNull(),
-  embedding: vector('embedding', { dimensions: 768 }),
+  embedding: vector('embedding', { dimensions: 3072 }),
   rawJson: text('raw_json'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
@@ -33,7 +33,7 @@ export const sentiments = pgTable('sentiments', {
   agreement: text('agreement'),
 }, (table) => ({
   // Strict enum-like validation at the DB level
-  sentimentTypeCheck: check('sentiment_type_check', sql`${table.sentimentType} IN ('positive', 'negative', 'mixed', 'neutral', 'debate')`),
+  sentimentTypeCheck: check('sentiment_type_check', sql`${table.sentimentType} IN ('positive', 'negative', 'mixed', 'neutral', 'debate', 'analytical', 'skeptical', 'critical', 'informative')`),
   sourceCheck: check('source_check', sql`${table.source} IN ('article', 'community')`),
 }));
 

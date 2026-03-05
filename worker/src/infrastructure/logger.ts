@@ -1,13 +1,15 @@
 import pino from 'pino';
+import { config } from '../config';
 
-const isDev = process.env.NODE_ENV !== 'production';
+const isDev = config.env.NODE_ENV !== 'production';
 
 export const logger = pino({
-  level: process.env.LOG_LEVEL || 'info',
+  level: config.env.LOG_LEVEL,
   base: {
-    env: process.env.NODE_ENV,
-    component: 'worker',
+    env: config.env.NODE_ENV,
+    service: 'hn-worker'
   },
+
   transport: isDev ? {
     target: 'pino-pretty',
     options: {

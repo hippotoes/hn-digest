@@ -5,6 +5,7 @@ import { stories, analyses, sentiments, bookmarks } from '@hn-digest/db';
 import { eq, desc, sql, and, or, ilike } from 'drizzle-orm';
 import { logger } from '@/logger';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { config } from '@/config';
 
 export const app = new Hono().basePath('/api');
 
@@ -156,10 +157,10 @@ app.get('/v1/search', async (c) => {
   try {
     let embedding: number[];
 
-    if (process.env.MOCK_LLM === 'true') {
+    if (config.env.MOCK_LLM) {
       embedding = new Array(768).fill(0.1);
     } else {
-      const apiKey = process.env.GEMINI_API_KEY || '';
+      const apiKey = config.env.GEMINI_API_KEY || '';
       if (!apiKey) throw new Error('GEMINI_API_KEY is not set.');
 
       const genAI = new GoogleGenerativeAI(apiKey);

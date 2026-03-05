@@ -29,7 +29,7 @@ def load_config():
     return {
         "primary_provider": "gemini",
         "gemini_model": "gemini-2.0-flash",
-        "deepseek_model": "deepseek-reasoner",
+        "deepseek_model": "deepseek-chat",
         "deepseek_api_base": "https://api.deepseek.com",
     }
 
@@ -166,7 +166,7 @@ def call_deepseek(prompt: str) -> str:
     url = f"{CONFIG.get('deepseek_api_base', 'https://api.deepseek.com')}/chat/completions"
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     payload = {
-        "model": CONFIG.get("deepseek_model", "deepseek-reasoner"),
+        "model": CONFIG.get("deepseek_model", "deepseek-chat"),
         "messages": [
             {
                 "role": "system",

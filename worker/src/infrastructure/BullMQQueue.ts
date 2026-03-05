@@ -1,13 +1,14 @@
 import { Queue, Worker, Job, FlowProducer } from 'bullmq';
 import Redis from 'ioredis';
-import { db } from './db';
-import { sql } from 'drizzle-orm';
-import { logger } from './logger';
 import { trace, SpanStatusCode } from '@opentelemetry/api';
+import { sql } from 'drizzle-orm';
+import { db } from '@hn-digest/db';
+import { config } from '../config';
+import { logger } from './logger';
 import { MultiLLMIntelligenceProvider } from './MultiLLMIntelligenceProvider';
 import { DrizzleAnalysisRepository } from './DrizzleAnalysisRepository';
 
-const redisUrl = process.env.REDIS_URL || 'redis://localhost:6381';
+const redisUrl = config.env.REDIS_URL;
 export const connection = new Redis(redisUrl, { maxRetriesPerRequest: null });
 
 // --- Specialized Queues ---
@@ -121,9 +122,11 @@ export async function processJob(job: Job) {
 export const mapWorker = new Worker('map-queue', processJob, {
   connection,
   concurrency: 10, // Maximize parallel extraction
+  lockDuration: 300000, // 5 minutes to prevent expiration during slow LLM calls
 });
 
 export const reduceWorker = new Worker('reduce-queue', processJob, {
   connection,
   concurrency: 5, // Balanced for heavy reasoning
+  lockDuration: 300000, // 5 minutes for deep-reasoner synthesis
 });

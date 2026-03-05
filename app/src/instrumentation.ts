@@ -1,3 +1,5 @@
+import { config } from './config';
+
 export async function register() {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
     const { NodeSDK } = await import('@opentelemetry/sdk-node');
@@ -11,7 +13,7 @@ export async function register() {
         [ATTR_SERVICE_NAME]: 'hn-digest-app',
       }),
       traceExporter: new OTLPTraceExporter({
-        url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://jaeger:4317',
+        url: config.env.OTEL_EXPORTER_OTLP_ENDPOINT,
       }),
       instrumentations: [getNodeAutoInstrumentations()],
     });

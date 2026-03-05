@@ -64,7 +64,7 @@ graph TD
 - **Function:** Compresses 50+ comments into raw technical arguments (Signals).
 
 ### C. The Reduce Phase (Reasoning-First)
-- **Model:** `deepseek-reasoner`.
+- **Model:** `deepseek-chat`.
 - **Logic:** Chain-of-Thought synthesis of Article + Community Signals.
 - **Durability:** **Durable Synthesis** pattern ensures analysis is saved even if secondary steps fail.
 

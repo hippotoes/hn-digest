@@ -19,11 +19,11 @@ sequenceDiagram
     end
 
     Note over Q,I: Map Phase: Parallel Signal Extraction
-    Q->>I: extractArguments(comments) [DeepSeek-R1]
+    Q->>I: extractArguments(comments) [deepseek-chat]
     I-->>Q: Technical Signal String
 
     Note over Q,I: Reduce Phase: Analysis Synthesis
-    Q->>I: generateAnalysis(story, signals) [DeepSeek-R1]
+    Q->>I: generateAnalysis(story, signals) [deepseek-chat]
     I-->>Q: AnalysisDTO
     Q->>I: generateEmbedding(summary) [Gemini 2.0]
     I-->>Q: vector[768]
@@ -32,8 +32,8 @@ sequenceDiagram
 ```
 
 ### Key Implementation Details:
-- **Map Phase**: Uses `deepseek-reasoner` for high-fidelity extraction from comment chunks.
-- **Reduce Phase**: Synthesis of final report using `deepseek-reasoner`.
+- **Map Phase**: Uses `deepseek-chat` for high-fidelity extraction from comment chunks.
+- **Reduce Phase**: Synthesis of final report using `deepseek-chat`.
 - **Embeddings**: Standardized on 768-dimension vectors using `gemini-embedding-001`.
 - **JSON Repair**: The `LLMIntelligence` module uses `json-repair` to handle trailing commas or malformed structure before Zod validation.
 

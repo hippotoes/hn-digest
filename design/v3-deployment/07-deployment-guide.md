@@ -73,7 +73,7 @@ npx tsx src/index.ts --enqueue --limit 1
 ### Gate 3: Trace Waterfall
 1.  Open your Logging UI (BetterStack/Axiom).
 2.  Search for the new story's `traceId`.
-3.  Confirm that `gemini-2.0-flash` signals and `deepseek-reasoner` synthesis are logged with correct durations.
+3.  Confirm that `gemini-2.0-flash` signals and `deepseek-chat` synthesis are logged with correct durations.
 
 ## 4. Troubleshooting
 *   **OOM Kill on Build:** If Next.js fails to build, increase the Build Instance size or reduce `cpu_count` in `next.config.js`.

@@ -24,13 +24,17 @@ The local environment is optimized for development and full-parity testing using
     docker compose up -d --build
     ```
 3.  **Database Initialization:**
-    Enable the `pgvector` extension and push the schema:
+    Enable the `pgvector` extension and push the schema using the workspace command:
     ```bash
     docker compose exec db psql -U postgres -d hndigest -c "CREATE EXTENSION IF NOT EXISTS vector;"
-    docker compose exec -w /app/packages/db app npx drizzle-kit push
+    docker compose exec app npm run db:push --workspace=@hn-digest/db
     ```
 4.  **Verification:**
-    Access the dashboard at `http://localhost:3005` and check health at `http://localhost:3005/api/health/ready`.
+    *   **Dashboard:** Access `http://localhost:3005` and check health at `http://localhost:3005/api/health/ready`.
+    *   **Worker Pipeline:** Run a manual scrape to confirm the end-to-end flow:
+        ```bash
+        docker compose exec worker npm run start --workspace=@hn-digest/worker -- --enqueue
+        ```
 
 ---
 
